@@ -83,11 +83,14 @@ return [
                 ->get(fn ($forum, Context $context) => $context->getActor()->can(Settings::MANAGE)),
         ]),
 
+    // 🚨 Literal keys (= Settings::PLACEMENT, Settings::NAV), never the constants: reading a
+    // constant here autoloads the class during boot, and a worker with a stale autoload map
+    // mid-deploy then fatals on every request. Constants inside closures are fine.
     (new Extend\Settings())
-        ->default(Settings::PLACEMENT, 'hero')
-        ->default(Settings::NAV, true)
-        ->serializeToForum('communityGoalsPlacement', Settings::PLACEMENT)
-        ->serializeToForum('communityGoalsNav', Settings::NAV, 'boolval'),
+        ->default('ernestdefoe-community-goals.placement', 'hero')
+        ->default('ernestdefoe-community-goals.nav', true)
+        ->serializeToForum('communityGoalsPlacement', 'ernestdefoe-community-goals.placement')
+        ->serializeToForum('communityGoalsNav', 'ernestdefoe-community-goals.nav', 'boolval'),
 
     (new Extend\Conditional())
         ->whenExtensionEnabled('flarum-gdpr', fn () => [
