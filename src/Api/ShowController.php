@@ -26,7 +26,7 @@ class ShowController extends Controller
     public function detail(Goal $goal, User $actor): array
     {
         $data = $this->present->summaries([$goal])[0];
-        $data['top'] = $this->present->top([$goal->id], 10)[$goal->id] ?? [];
+        $data['top'] = $this->present->canSeeHelpers($actor, $goal->metric) ? ($this->present->top([$goal->id], 10)[$goal->id] ?? []) : [];
 
         $data['mine'] = 0;
         $data['rank'] = null;

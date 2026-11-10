@@ -184,7 +184,7 @@ class GoalsTest extends TestCase
 
         // A post's author liking it doesn't count (if the forum even allows it).
         $this->database()->table('post_likes')->insert(['post_id' => $post, 'user_id' => 3, 'created_at' => Carbon::now()]);
-        $this->app()->getContainer()->make(Tally::class)->post($post, 1, false, true);
+        $this->app()->getContainer()->make(Tally::class)->post($post, 1, false, [Goal::LIKES]);
         $this->assertSame(1, $this->fresh($id)->progress);
     }
 
@@ -307,6 +307,12 @@ class GoalsTest extends TestCase
         $this->app()->getContainer()->make(Tally::class)->member(5);
         $this->app()->getContainer()->make(Tally::class)->member(5);
         $this->assertSame($before + 1, $this->fresh($id)->progress);
+
+        // Who joined is only shown to those who may see the member list (guests can't, by default).
+        [, $show] = $this->api('GET', "/$id", null);
+        $this->assertSame([], $show['goal']['top']);
+        [, $show] = $this->api('GET', "/$id", 1);
+        $this->assertContains(5, array_column($show['goal']['top'], 0));
 
         $this->send($this->request('DELETE', '/api/users/5', ['authenticatedAs' => 1]));
         $goal = $this->fresh($id);

@@ -227,7 +227,7 @@ export default class GoalsPage extends Page {
             <span className="GoalPanel-helperCount">
               {t(reached && status === 'done' ? 'goal.helped' : 'goal.helpers', { count: goal.contributors })}
             </span>
-            {goal.contributors > 0 && goal.metric !== 'custom' && (
+            {(goal.top || []).length > 0 && (
               <Button className="Button Button--link GoalPanel-all" onclick={() => app.modal.show(TopModal, { goal })}>
                 {t('goal.see_all')}
               </Button>

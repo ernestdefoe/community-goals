@@ -98,6 +98,16 @@ class Present
     }
 
     /**
+     * Whether the viewer may see who helped: a "new members" goal's helpers
+     * are the new members themselves, so they're shown only to those who may
+     * see the member list.
+     */
+    public function canSeeHelpers(User $actor, string $metric): bool
+    {
+        return $metric !== Goal::MEMBERS || $actor->can('searchUsers');
+    }
+
+    /**
      * The top members of several goals in one query (a UNION of one small
      * indexed read per goal).
      *

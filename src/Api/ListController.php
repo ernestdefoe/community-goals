@@ -41,7 +41,8 @@ class ListController extends Controller
         $open = $this->present->visible($actor, $this->present->summaries($open));
         $past = $this->present->visible($actor, $this->present->summaries($past->take(self::PAST_PER_PAGE)));
 
-        $top = $this->present->top(array_column($open, 'id'), 5) + $this->present->top(array_column($past, 'id'), 3);
+        $shown = fn (array $goals) => array_column(array_filter($goals, fn ($g) => $this->present->canSeeHelpers($actor, $g['metric'])), 'id');
+        $top = $this->present->top($shown($open), 5) + $this->present->top($shown($past), 3);
         $mine = $actor->isGuest() ? [] : $this->db->table('community_goal_contributors')
             ->where('user_id', $actor->id)
             ->whereIn('goal_id', [...array_column($open, 'id'), ...array_column($past, 'id')])

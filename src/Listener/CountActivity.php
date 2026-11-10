@@ -35,11 +35,12 @@ class CountActivity
 
     public function subscribe(Dispatcher $events): void
     {
-        foreach ([PostEvent\Posted::class, PostEvent\Hidden::class, PostEvent\Restored::class, PostEvent\Deleted::class, PostWasApproved::class] as $event) {
+        $events->listen(PostEvent\Posted::class, fn ($e) => $this->post($e->post, [Goal::REPLIES, Goal::TAG_POSTS]));
+        foreach ([PostEvent\Hidden::class, PostEvent\Restored::class, PostEvent\Deleted::class, PostWasApproved::class] as $event) {
             $events->listen($event, fn ($e) => $this->post($e->post));
         }
         foreach ([PostWasLiked::class, PostWasUnliked::class] as $event) {
-            $events->listen($event, fn ($e) => $this->post($e->post, true));
+            $events->listen($event, fn ($e) => $this->post($e->post, [Goal::LIKES]));
         }
 
         // Tags may be saved after the first post, so a new discussion is looked at as a whole too.
@@ -56,10 +57,11 @@ class CountActivity
         $events->listen(UserEvent\Deleting::class, fn ($e) => $this->safely(fn () => $this->tally->forgetUser($e->user->id)));
     }
 
-    private function post(Post $post, bool $likesOnly = false): void
+    /** @param list<string> $metrics */
+    private function post(Post $post, array $metrics = [Goal::REPLIES, Goal::TAG_POSTS, Goal::LIKES]): void
     {
         if ($post->id && $post->discussion_id) {
-            $this->safely(fn () => $this->tally->post($post->id, $post->discussion_id, (int) $post->number === 1, $likesOnly));
+            $this->safely(fn () => $this->tally->post($post->id, $post->discussion_id, (int) $post->number === 1, $metrics));
         }
     }
 

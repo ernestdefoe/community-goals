@@ -30,13 +30,18 @@ class Tally
     ) {
     }
 
-    /** A post was written, hidden, restored, approved, deleted, liked or unliked. */
-    public function post(int $postId, int $discussionId, bool $isFirst, bool $likesOnly = false): void
+    /**
+     * A post was written, hidden, restored, approved, deleted, liked or
+     * unliked; $metrics narrows which goals can care (a new post has no likes).
+     *
+     * @param list<string> $metrics
+     */
+    public function post(int $postId, int $discussionId, bool $isFirst, array $metrics = [Goal::REPLIES, Goal::TAG_POSTS, Goal::LIKES]): void
     {
-        foreach ($this->open->get($likesOnly ? [Goal::LIKES] : [Goal::REPLIES, Goal::TAG_POSTS, Goal::LIKES]) as $goal) {
+        foreach ($this->open->get($metrics) as $goal) {
             $this->sync($goal, Counting::SCOPE_POST, $postId);
         }
-        if ($isFirst && ! $likesOnly) {
+        if ($isFirst && $metrics !== [Goal::LIKES]) {
             $this->discussion($discussionId, [Goal::DISCUSSIONS]);
         }
     }
