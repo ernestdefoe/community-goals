@@ -24,7 +24,7 @@ The whole forum works together toward a shared target: "500 replies this week un
 
 | | |
 |---|---|
-| ![Banner](screenshots/banner.png) | ![Reached](screenshots/reached.png) |
+| ![Banner](screenshots/banner.png) | ![Reached](screenshots/goal-reached.png) |
 | ![Dark](screenshots/dark.png) | ![Setting a goal](screenshots/form.png) |
 
 ## Install
