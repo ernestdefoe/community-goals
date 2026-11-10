@@ -321,6 +321,15 @@ class GoalsTest extends TestCase
     }
 
     #[Test]
+    public function the_reader_has_an_id_other_extensions_can_rely_on(): void
+    {
+        $reader = \ErnestDefoe\CommunityGoals\Counting::reader();
+        $this->assertSame(0, $reader->id);
+        $this->assertFalse($reader->isGuest());
+        $this->assertFalse($reader->isAdmin());
+    }
+
+    #[Test]
     public function deleting_a_discussion_takes_its_replies_back(): void
     {
         $id = $this->goal();

@@ -38,10 +38,16 @@ class Counting
     ) {
     }
 
-    /** A signed-in member with no groups beyond Members: who the counted things must be visible to. */
+    /**
+     * A signed-in member with no groups beyond Members: who the counted things
+     * must be visible to. 🚨 Id 0, never null: other extensions' visibility
+     * scopes take a non-guest's id as an int (Kiosk threw on null, so nothing
+     * was counted), and 0 belongs to nobody, so "the actor's own" matches nothing.
+     */
     public static function reader(): User
     {
         $reader = new User();
+        $reader->id = 0;
         $reader->is_email_confirmed = true;
         $reader->setRelation('groups', new Collection());
 
