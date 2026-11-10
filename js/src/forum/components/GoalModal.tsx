@@ -401,8 +401,7 @@ export default class GoalModal extends FormModal<Attrs> {
         const problem = error?.response?.errors?.[0];
         if (!complete && problem?.source?.pointer === '/data/attributes/complete') {
           m.redraw();
-          if (window.confirm(extractText(t('form.complete_confirm', { reason: problem.detail })))) this.save(true);
-          return;
+          if (window.confirm(extractText(t('form.complete_confirm', { reason: problem.detail })))) return this.save(true);
         }
         this.onerror(error);
         m.redraw();
