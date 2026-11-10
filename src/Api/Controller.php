@@ -30,6 +30,8 @@ abstract class Controller implements RequestHandlerInterface
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
         $actor = RequestUtil::getActor($request);
+        // A forum closed to guests stays closed: goal names, rewards and helpers included.
+        $actor->assertCan('viewForum');
         $actor->assertCan(Settings::VIEW);
 
         $data = $this->respond($request, $actor);

@@ -20,7 +20,8 @@ interface Choice {
 interface Options {
   likes: boolean;
   tags: Choice[] | null;
-  rewards: {
+  /** Null for anyone but admins. */
+  rewards: null | {
     theme?: Choice[];
     festoon?: Choice[];
     badge?: Choice[];
@@ -219,7 +220,7 @@ export default class GoalModal extends FormModal<Attrs> {
             />
           </div>
 
-          {!frozen && this.rewards()}
+          {!frozen && (this.options.rewards ? this.rewards() : <p className="helpText GoalModal-adminOnly">{t('form.rewards_admin')}</p>)}
 
           <div className="Form-group">
             <Button className="Button Button--primary Button--block" type="submit" loading={this.loading} disabled={!this.name().trim()}>
@@ -232,7 +233,7 @@ export default class GoalModal extends FormModal<Attrs> {
   }
 
   rewards(): Mithril.Children {
-    const offer = this.options!.rewards;
+    const offer = this.options!.rewards!;
     const days = (max: number, forever: boolean) => ({
       ...(forever ? { 0: extractText(t('form.days_forever')) } : {}),
       ...Object.fromEntries([1, 2, 3, 5, 7, 10, 14, 30, 60].filter((n) => n <= max).map((n) => [n, extractText(t('form.days_n', { count: n }))])),
@@ -376,16 +377,33 @@ export default class GoalModal extends FormModal<Attrs> {
 
   onsubmit(e: SubmitEvent) {
     e.preventDefault();
+    this.save(false);
+  }
+
+  /**
+   * The server refuses a target that is already met (the goal would be
+   * reached, for good, the moment it's saved) unless asked on purpose: say
+   * why and ask, then send it again with `complete`.
+   */
+  save(complete: boolean) {
     this.loading = true;
     const goal = this.attrs.goal;
+    const body = this.data();
+    if (complete) body.complete = true;
 
-    call(goal ? 'PATCH' : 'POST', goal ? `/${goal.id}` : '', this.data())
+    call(goal ? 'PATCH' : 'POST', goal ? `/${goal.id}` : '', body)
       .then(() => {
         this.hide();
         this.attrs.onsave?.();
       })
       .catch((error) => {
         this.loading = false;
+        const problem = error?.response?.errors?.[0];
+        if (!complete && problem?.source?.pointer === '/data/attributes/complete') {
+          m.redraw();
+          if (window.confirm(extractText(t('form.complete_confirm', { reason: problem.detail })))) this.save(true);
+          return;
+        }
         this.onerror(error);
         m.redraw();
       });

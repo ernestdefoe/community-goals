@@ -21,13 +21,17 @@ class OpenGoals
     }
 
     /**
-     * Counted goals that are not closed, optionally only these metrics.
+     * Counted goals running right now, optionally only these metrics. A goal
+     * that hasn't started or has ended is left alone even before the tick
+     * closes it: things happening now can't be inside its window, and an
+     * ended goal's number stays as it was at the end (no scheduler needed).
      *
      * @param list<string> $metrics
      * @return list<Goal>
      */
     public function get(array $metrics = []): array
     {
+        $now = gmdate('Y-m-d H:i:s');
         $rows = $this->cache->rememberForever(self::KEY, fn () => Goal::query()
             ->whereNull('closed_at')
             ->where('metric', '!=', Goal::CUSTOM)
@@ -45,7 +49,7 @@ class OpenGoals
 
         $goals = [];
         foreach ((array) $rows as $row) {
-            if (! $metrics || in_array($row['metric'], $metrics, true)) {
+            if ($row['starts_at'] <= $now && $now < $row['ends_at'] && (! $metrics || in_array($row['metric'], $metrics, true))) {
                 $goals[] = (new Goal())->newFromBuilder($row);
             }
         }

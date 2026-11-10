@@ -142,10 +142,13 @@ class Present
     /**
      * Members as one compact list the browser pushes into its store.
      *
+     * Only members the viewer may see (a forum can hide its member list
+     * or particular members).
+     *
      * @param list<int> $ids
      * @return list<array<string, mixed>>
      */
-    public function users(array $ids): array
+    public function users(array $ids, User $actor): array
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (! $ids) {
@@ -154,7 +157,7 @@ class Present
 
         $slugger = $this->slugs->forResource(User::class);
 
-        return User::query()->whereIn('id', $ids)->get()->map(fn (User $user) => [
+        return User::query()->whereVisibleTo($actor)->whereIn('users.id', $ids)->get()->map(fn (User $user) => [
             'id' => $user->id,
             'username' => $user->username,
             'displayName' => $user->display_name,

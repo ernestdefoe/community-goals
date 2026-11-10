@@ -45,9 +45,13 @@ class ShowController extends Controller
             $data['countedAt'] = $goal->counted_at?->toIso8601String();
         }
 
+        $users = $this->present->users(array_column($data['top'], 0), $actor);
+        $seen = array_column($users, 'id');
+        $data['top'] = array_values(array_filter($data['top'], fn ($row) => in_array($row[0], $seen, true)));
+
         return [
             'goal' => $data,
-            'users' => $this->present->users(array_column($data['top'], 0)),
+            'users' => $users,
             'canManage' => $canManage,
             'now' => Present::now(),
         ];

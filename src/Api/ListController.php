@@ -64,11 +64,20 @@ class ListController extends Controller
             }
         }
 
+        // Helpers the viewer may not see are left out of the lists, not shown as "deleted".
+        $users = $this->present->users($userIds, $actor);
+        $seen = array_column($users, 'id');
+        $keep = function (array $goal) use ($seen) {
+            $goal['top'] = array_values(array_filter($goal['top'], fn ($row) => in_array($row[0], $seen, true)));
+
+            return $goal;
+        };
+
         return [
-            'open' => $open,
-            'past' => $past,
+            'open' => array_map($keep, $open),
+            'past' => array_map($keep, $past),
             'more' => $more,
-            'users' => $this->present->users($userIds),
+            'users' => $users,
             'canManage' => $actor->can(Settings::MANAGE),
             'now' => Present::now(),
         ];

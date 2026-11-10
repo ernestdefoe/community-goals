@@ -8,8 +8,10 @@ use Flarum\Api\JsonApi;
 use Flarum\Api\Resource\DiscussionResource;
 use Flarum\Discussion\Discussion;
 use Flarum\Extension\ExtensionManager;
+use Flarum\Group\Group;
 use Flarum\Http\UrlGenerator;
 use Flarum\Tags\Tag;
+use Flarum\User\User;
 use Laminas\Diactoros\ServerRequest;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
@@ -60,14 +62,16 @@ class Announcement implements Reward
 
     public function apply(Goal $goal, array $config): array
     {
-        $author = $goal->creator;
+        // Whoever set the goal; if their account is gone, the forum's first admin.
+        $author = $goal->creator ?? User::query()->whereHas('groups', fn ($q) => $q->where('id', Group::ADMINISTRATOR_ID))->orderBy('id')->first();
         // process() skips the endpoint's own permission check.
         if (! $author || ! $author->can('startDiscussion')) {
             return ['skipped' => 'no_author'];
         }
 
-        $top = $this->present->top([$goal->id], 3)[$goal->id] ?? [];
-        $names = collect($this->present->users(array_column($top, 0)))->keyBy('id');
+        // A new-members goal's helpers are the new members: they are not named in public.
+        $top = $goal->metric === Goal::MEMBERS ? [] : ($this->present->top([$goal->id], 3)[$goal->id] ?? []);
+        $names = collect($this->present->users(array_column($top, 0), $author))->keyBy('id');
         $topText = implode(', ', array_filter(array_map(fn ($row) => isset($names[$row[0]]) ? $names[$row[0]]['displayName'].' ('.$row[1].')' : null, $top)));
 
         $fill = [

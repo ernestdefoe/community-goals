@@ -16,8 +16,9 @@ use Illuminate\Contracts\Container\Container;
  *  1. closes goals whose window is over, after a last check that records a
  *     goal reached by its final count. Closed goals never move again.
  *  2. finishes any reached goal whose rewards the queue hasn't handed out
- *     (a worker that died); CompleteGoal claims its own work, so running it
- *     here as well is harmless.
+ *     (no worker, a worker that died, a step that threw); CompleteGoal
+ *     takes a lease and only does what is left, so running it here as
+ *     well is harmless.
  *  3. takes back timed rewards whose days are up.
  */
 class TickCommand extends AbstractCommand
@@ -50,7 +51,10 @@ class TickCommand extends AbstractCommand
             $this->goals->changed();
         }
 
-        $waiting = Goal::query()->whereNotNull('hit_at')->whereNull('rewarded_at')->where('hit_at', '<=', $now->copy()->subMinutes(5))->pluck('id');
+        // Reached but not finished, and nobody working on it (or a run that died: its lease is stale).
+        $waiting = Goal::query()->whereNotNull('hit_at')->whereNull('rewarded_at')
+            ->where(fn ($q) => $q->whereNull('completing_at')->orWhere('completing_at', '<', $now->copy()->subMinutes(CompleteGoal::LEASE_MINUTES)))
+            ->pluck('id');
         foreach ($waiting as $id) {
             $this->container->call([new CompleteGoal((int) $id), 'handle']);
         }

@@ -17,6 +17,6 @@ class BoardController extends Controller
 
     protected function respond(ServerRequestInterface $request, User $actor): mixed
     {
-        return ['goals' => $this->present->visible($actor, $this->board->get()), 'now' => Present::now()];
+        return ['goals' => array_slice($this->present->visible($actor, $this->board->get()), 0, Board::LIMIT), 'now' => Present::now()];
     }
 }

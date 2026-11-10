@@ -2,6 +2,7 @@
 
 namespace ErnestDefoe\CommunityGoals;
 
+use Carbon\Carbon;
 use Flarum\Discussion\Discussion;
 use Flarum\Extension\ExtensionManager;
 use Flarum\Post\Post;
@@ -134,6 +135,105 @@ class Counting
         }
 
         return $query;
+    }
+
+    /** Metrics whose facts come from the same rows: replies and tag posts are both posts. */
+    public static function family(string $metric): string
+    {
+        return match ($metric) {
+            Goal::REPLIES, Goal::TAG_POSTS => 'posts',
+            default => $metric,
+        };
+    }
+
+    /**
+     * What a scope holds for one family of metrics, undated by any window:
+     * the rows the ledger would take (subject_id, user_id, discussion_id),
+     * with `at` (when it was written, given or joined), `number` (a post's)
+     * and `tags` (the discussion's tag ids). Tally runs ONE of these per
+     * family and lets accepts() sort the rows to each goal, so ten goals cost
+     * what one does. Same rules as query(), which Recount runs.
+     *
+     * @return list<object>
+     */
+    public function facts(string $family, string $scope, int $id): array
+    {
+        switch ($family) {
+            case 'posts':
+            case Goal::LIKES:
+                if ($family === Goal::LIKES && ! $this->extensions->isEnabled('flarum-likes')) {
+                    return [];
+                }
+                $query = $this->posts()->where($scope === self::SCOPE_DISCUSSION ? 'posts.discussion_id' : 'posts.id', $id);
+                $query = $family === 'posts'
+                    ? $query->select(['posts.id as subject_id', 'posts.user_id as user_id', 'posts.discussion_id as discussion_id', 'posts.created_at as at', 'posts.number as number'])
+                    : $query->join('post_likes', 'post_likes.post_id', '=', 'posts.id')
+                        ->whereColumn('post_likes.user_id', '!=', 'posts.user_id')
+                        ->select(['posts.id as subject_id', 'post_likes.user_id as user_id', 'posts.discussion_id as discussion_id', 'post_likes.created_at as at']);
+                break;
+            case Goal::DISCUSSIONS:
+                $query = Discussion::query()->whereVisibleTo(self::reader())->toBase()
+                    ->whereNull('discussions.hidden_at')
+                    ->whereNotNull('discussions.user_id')
+                    ->where('discussions.id', $id)
+                    ->select(['discussions.id as subject_id', 'discussions.user_id as user_id', 'discussions.id as discussion_id', 'discussions.created_at as at']);
+                break;
+            case Goal::MEMBERS:
+                $query = $this->db->table('users')
+                    ->where('users.is_email_confirmed', true)
+                    ->where('users.id', $id)
+                    ->select(['users.id as subject_id', 'users.id as user_id', new Expression('NULL as discussion_id'), 'users.joined_at as at']);
+                break;
+            default:
+                return [];
+        }
+
+        return $query->get()->all();
+    }
+
+    /**
+     * The discussion tags facts() rows need, for tag goals: one query for
+     * every discussion they name.
+     *
+     * @param list<object> $rows
+     * @return array<int, list<int>>
+     */
+    public function tagsOf(array $rows): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map(fn (object $row): int => (int) ($row->discussion_id ?? 0), $rows))));
+        if (! $ids || ! $this->extensions->isEnabled('flarum-tags')) {
+            return [];
+        }
+
+        $tags = [];
+        foreach ($this->db->table('discussion_tag')->whereIn('discussion_id', $ids)->get(['discussion_id', 'tag_id']) as $row) {
+            $tags[(int) $row->discussion_id][] = (int) $row->tag_id;
+        }
+
+        return $tags;
+    }
+
+    /**
+     * Whether a facts() row counts for this goal: inside its window (both ends
+     * included, as whereBetween), a reply rather than an opening post, in the tag.
+     *
+     * @param array<int, list<int>> $tags
+     */
+    public function accepts(Goal $goal, object $row, array $tags): bool
+    {
+        if ($row->at === null) {
+            return false;
+        }
+        $at = Carbon::parse($row->at, 'UTC');
+        if ($at->lt($goal->starts_at) || $at->gt($goal->ends_at)) {
+            return false;
+        }
+
+        return match ($goal->metric) {
+            Goal::REPLIES => (int) $row->number > 1,
+            Goal::TAG_POSTS => $goal->tag_id && in_array($goal->tag_id, $tags[(int) $row->discussion_id] ?? [], true),
+            default => true,
+        };
     }
 
     /** Comment posts by members that a member can read. */

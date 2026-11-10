@@ -20,6 +20,9 @@ class Board
     /** At most this many goals on the index page; the rest are on /goals. */
     public const LIMIT = 3;
 
+    /** Cached for everyone: more than LIMIT, so a viewer who can't see a tag goal still gets three. */
+    public const CACHED = 10;
+
     public function __construct(
         private readonly Repository $cache,
         private readonly Present $present,
@@ -38,7 +41,7 @@ class Board
                     ->orWhere('hit_at', '>=', $now->copy()->subDays(2)))
                 ->orderByRaw('CASE WHEN hit_at IS NULL THEN 0 ELSE 1 END')
                 ->orderBy('ends_at')
-                ->limit(self::LIMIT)
+                ->limit(self::CACHED)
                 ->get();
 
             return $this->present->summaries($goals);

@@ -30,6 +30,7 @@ class Goals
         private readonly Rewards $rewards,
         private readonly Tally $tally,
         private readonly Queue $queue,
+        private readonly Counting $counting,
         private readonly ExtensionManager $extensions,
         private readonly TranslatorInterface $translator,
     ) {
@@ -42,7 +43,8 @@ class Goals
         $goal ??= new Goal();
         $frozen = ! $creating && ($goal->hit_at || $goal->closed_at);
 
-        $text = fn (string $key, int $max) => mb_substr(trim(strip_tags((string) ($input[$key] ?? ''))), 0, $max);
+        // Plain text, escaped wherever it is shown: "<3 replies" stays as typed.
+        $text = fn (string $key, int $max) => mb_substr(trim((string) ($input[$key] ?? '')), 0, $max);
 
         if ($creating || array_key_exists('title', $input)) {
             $goal->title = $text('title', 100);
@@ -102,7 +104,9 @@ class Goals
                 $goal->ends_at = $ends;
             }
 
-            if ($creating || array_key_exists('rewards', $input)) {
+            // Rewards change site settings and hand out badges: admins only, even
+            // where moderators may set goals (their rewards input is ignored).
+            if (($creating || array_key_exists('rewards', $input)) && $actor->isAdmin()) {
                 $goal->rewards = $this->rewards->clean($input['rewards'] ?? []) ?: null;
             }
 
@@ -114,6 +118,15 @@ class Goals
                 if ($goal->metric === Goal::CUSTOM) {
                     $goal->progress = max(0, min(self::MAX_TARGET, (int) ($input['progress'] ?? 0)));
                 }
+            }
+        }
+
+        // 🚨 A target already met would complete the goal the moment it is saved,
+        // for good (notifications, rewards). Only on purpose: `complete`.
+        if (! $frozen && ($creating || $goal->isDirty(['target', 'metric', 'tag_id', 'starts_at', 'ends_at'])) && empty($input['complete'])) {
+            $count = $goal->isCounted() ? ($this->counting->query($goal)?->count() ?? 0) : $goal->progress;
+            if ($count >= $goal->target) {
+                $this->fail('complete', 'target_reached', ['count' => $count]);
             }
         }
 
@@ -146,7 +159,7 @@ class Goals
         $change = $set !== null ? max(0, min(self::MAX_TARGET, $set)) - $goal->progress : (int) $add;
         $change = max(-$goal->progress, min(self::MAX_TARGET - $goal->progress, $change));
         if ($change) {
-            $this->tally->adjust($goal->id, [], $change);
+            $this->tally->adjust([], [$goal->id => $change]);
         }
     }
 
@@ -179,8 +192,9 @@ class Goals
         }
     }
 
-    private function fail(string $field, string $key): never
+    /** @param array<string, mixed> $params */
+    private function fail(string $field, string $key, array $params = []): never
     {
-        throw new ValidationException([$field => $this->translator->trans('ernestdefoe-community-goals.api.'.$key)]);
+        throw new ValidationException([$field => $this->translator->trans('ernestdefoe-community-goals.api.'.$key, $params)]);
     }
 }

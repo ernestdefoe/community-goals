@@ -55,6 +55,9 @@ return [
         ->post('/community-goals/{id:\d+}/recount', 'community-goals.recount', Api\RecountController::class)
         ->post('/community-goals/{id:\d+}/progress', 'community-goals.progress', Api\ProgressController::class),
 
+    // Only because a notification's subject needs a resource; no endpoints.
+    new Extend\ApiResource(Api\GoalResource::class),
+
     (new Extend\Notification())
         ->type(GoalReachedBlueprint::class, ['alert']),
 
@@ -72,10 +75,10 @@ return [
     (new Extend\ApiResource(ForumResource::class))
         ->fields(fn () => [
             Schema\Arr::make('communityGoals')
-                ->visible(fn ($forum, Context $context) => $context->getActor()->can(Settings::VIEW) && resolve('flarum.settings')->get(Settings::PLACEMENT, 'hero') !== 'off')
-                ->get(fn ($forum, Context $context) => resolve(Present::class)->visible($context->getActor(), resolve(Board::class)->get())),
+                ->visible(fn ($forum, Context $context) => Settings::canView($context->getActor()) && resolve('flarum.settings')->get(Settings::PLACEMENT, 'hero') !== 'off')
+                ->get(fn ($forum, Context $context) => array_slice(resolve(Present::class)->visible($context->getActor(), resolve(Board::class)->get()), 0, Board::LIMIT)),
             Schema\Boolean::make('communityGoalsCanView')
-                ->get(fn ($forum, Context $context) => $context->getActor()->can(Settings::VIEW)),
+                ->get(fn ($forum, Context $context) => Settings::canView($context->getActor())),
             Schema\Boolean::make('communityGoalsCanManage')
                 ->get(fn ($forum, Context $context) => $context->getActor()->can(Settings::MANAGE)),
         ]),

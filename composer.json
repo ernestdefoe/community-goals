@@ -58,6 +58,7 @@
                 "flarum/tags",
                 "flarum/approval",
                 "fof/badges",
+                "fof/merge-discussions",
                 "ernestdefoe/wardrobe",
                 "ernestdefoe/festoon"
             ]

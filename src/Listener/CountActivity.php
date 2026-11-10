@@ -6,6 +6,7 @@ use ErnestDefoe\CommunityGoals\Goal;
 use ErnestDefoe\CommunityGoals\Tally;
 use Flarum\Approval\Event\PostWasApproved;
 use Flarum\Discussion\Event as DiscussionEvent;
+use FoF\MergeDiscussions\Events\DiscussionWasMerged;
 use Flarum\Likes\Event\PostWasLiked;
 use Flarum\Likes\Event\PostWasUnliked;
 use Flarum\Post\Event as PostEvent;
@@ -45,7 +46,16 @@ class CountActivity
 
         // Tags may be saved after the first post, so a new discussion is looked at as a whole too.
         $events->listen(DiscussionEvent\Started::class, fn ($e) => $this->safely(fn () => $this->tally->discussion($e->discussion->id, [Goal::DISCUSSIONS, Goal::TAG_POSTS])));
-        $events->listen(DiscussionWasTagged::class, fn ($e) => $this->safely(fn () => $this->tally->discussion($e->discussion->id, [Goal::TAG_POSTS])));
+        // Re-tagged: a tag goal gains or loses it, and a move into (or out of) a
+        // staff-only tag changes what a member can read, so every metric looks again.
+        // (Changing a TAG's permissions moves nothing by itself: that needs a Recount.)
+        $events->listen(DiscussionWasTagged::class, fn ($e) => $this->safely(fn () => $this->tally->discussion($e->discussion->id)));
+        // FoF Merge Discussions moves posts into another discussion without post events.
+        $events->listen(DiscussionWasMerged::class, fn ($e) => $this->safely(fn () => $this->tally->merged(
+            $e->discussion->id,
+            $e->mergedDiscussions->pluck('id')->map(fn ($id) => (int) $id)->all(),
+            $e->posts->pluck('id')->map(fn ($id) => (int) $id)->all(),
+        )));
         foreach ([DiscussionEvent\Hidden::class, DiscussionEvent\Restored::class] as $event) {
             $events->listen($event, fn ($e) => $this->safely(fn () => $this->tally->discussion($e->discussion->id)));
         }

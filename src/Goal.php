@@ -25,6 +25,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property Carbon $ends_at
  * @property Carbon|null $hit_at
  * @property Carbon|null $rewarded_at
+ * @property Carbon|null $completing_at
  * @property Carbon|null $closed_at
  * @property Carbon|null $counted_at
  * @property int $contributors_count
@@ -63,6 +64,7 @@ class Goal extends AbstractModel
         'ends_at' => 'datetime',
         'hit_at' => 'datetime',
         'rewarded_at' => 'datetime',
+        'completing_at' => 'datetime',
         'closed_at' => 'datetime',
         'counted_at' => 'datetime',
         'contributors_count' => 'integer',

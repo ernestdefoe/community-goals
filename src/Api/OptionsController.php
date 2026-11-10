@@ -26,7 +26,8 @@ class OptionsController extends Controller
             'likes' => $this->extensions->isEnabled('flarum-likes'),
             'tags' => $tags ? Tag::query()->orderBy('position')->orderBy('name')->get(['id', 'name', 'parent_id'])
                 ->map(fn (Tag $tag) => ['id' => $tag->id, 'title' => $tag->name, 'child' => (bool) $tag->parent_id])->all() : null,
-            'rewards' => $this->rewards->options(),
+            // Rewards change site settings and hand out badges: admins only (Goals::save agrees).
+            'rewards' => $actor->isAdmin() ? $this->rewards->options() : null,
         ];
     }
 }

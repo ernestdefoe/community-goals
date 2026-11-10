@@ -34,6 +34,8 @@ class Recount
         }
 
         $this->db->transaction(function () use ($goal) {
+            // Tally waits on this lock, so nothing is counted twice or lost while the ledger is rebuilt.
+            $this->db->table('community_goals')->where('id', $goal->id)->lockForUpdate()->value('id');
             $this->db->table('community_goal_entries')->where('goal_id', $goal->id)->delete();
             $this->db->table('community_goal_contributors')->where('goal_id', $goal->id)->delete();
 

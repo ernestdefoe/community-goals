@@ -13,6 +13,6 @@ parameters:
         - src
     # Optional extensions this one rewards through (only touched while they are enabled).
     ignoreErrors:
-        - '#(FoF\\Badges|Ernestdefoe\\Wardrobe|Ernestdefoe\\Festoon)#'
+        - '#(FoF\\Badges|FoF\\MergeDiscussions|Ernestdefoe\\Wardrobe|Ernestdefoe\\Festoon)#'
         - identifier: class.notFound
           path: src/Reward/*

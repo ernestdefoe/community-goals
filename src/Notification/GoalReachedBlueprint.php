@@ -11,8 +11,9 @@ use Flarum\User\User;
 /**
  * To everyone who helped: "We reached Reply Rally together!" One blueprint
  * for all of them (so one sync, one insert), which is why the data carries
- * nothing about the recipient. The subject is the goal's creator, a User,
- * which has an API resource; the goal rides in the data.
+ * nothing about the recipient. The subject is the goal itself (it has the
+ * `community-goals` API resource and store model), so the alerts outlive
+ * whoever set the goal; they go when the goal is deleted.
  */
 class GoalReachedBlueprint implements BlueprintInterface, AlertableInterface
 {
@@ -27,7 +28,7 @@ class GoalReachedBlueprint implements BlueprintInterface, AlertableInterface
 
     public function getSubject(): ?AbstractModel
     {
-        return $this->goal->creator;
+        return $this->goal;
     }
 
     public function getData(): mixed
@@ -48,6 +49,6 @@ class GoalReachedBlueprint implements BlueprintInterface, AlertableInterface
 
     public static function getSubjectModel(): string
     {
-        return User::class;
+        return Goal::class;
     }
 }

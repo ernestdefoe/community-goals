@@ -48,6 +48,9 @@ php flarum cache:clear
 - Goals close a few minutes after they end (Flarum's scheduler runs `community-goals:tick`), and timed rewards are taken back the same way. Make sure the scheduler is running.
 - Set a goal that started in the past and it counts what already happened. If a count ever looks off, **Recount** in the goal's menu (or `php flarum community-goals:recount`) rebuilds it.
 - Once a goal is reached it stays reached, even if a post is removed afterwards. It keeps counting until its window ends.
+- A goal whose target is already met when you save it would be reached on the spot; the form asks before it does that.
+- Automatic rewards can only be set by admins, even if moderators may set goals.
+- Changed which groups can see a tag? Use **Recount** on goals that count it: the count follows posts as they change, not permission edits.
 
 ## Links
 

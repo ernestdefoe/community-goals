@@ -88,8 +88,15 @@ class Rewards
         return $out;
     }
 
-    /** Hand out every reward the goal carries. Returns what was done. @return array<string, mixed> */
-    public function apply(Goal $goal): array
+    /**
+     * Hand out every reward the goal carries that isn't done yet, handing
+     * the state to $save after each one, so a run that dies part way never
+     * hands the finished ones out again.
+     *
+     * @param callable(array<string, mixed>): void $save
+     * @return array<string, mixed>
+     */
+    public function apply(Goal $goal, callable $save): array
     {
         $state = $goal->reward_state ?? [];
 
@@ -104,6 +111,7 @@ class Rewards
                 $this->log->warning('[community-goals] goal '.$goal->id.' reward '.$kind.' failed: '.$e->getMessage());
                 $state[$kind] = ['failed' => mb_substr($e->getMessage(), 0, 200)];
             }
+            $save($state);
         }
 
         return $state;
@@ -122,8 +130,8 @@ class Rewards
         $now = Carbon::now()->getTimestamp();
 
         foreach ($state as $kind => $done) {
-            $until = $done['until'] ?? null;
-            if (! is_array($done) || ! empty($done['ended']) || ! $until || (! $all && $until > $now)) {
+            $until = is_array($done) ? ($done['until'] ?? null) : null;
+            if (! $until || ! empty($done['ended']) || (! $all && $until > $now)) {
                 continue;
             }
             try {
