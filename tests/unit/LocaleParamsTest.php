@@ -7,7 +7,7 @@ use Symfony\Component\Yaml\Yaml;
 
 /**
  * Flarum's translator treats every {name} in a string as a parameter, so a
- * string called without it shows "{undefined}" (the announcement help did).
+ * string called without it shows "{undefined}" (the announcement help did, 1.0.0).
  * Every literal t('key') call in js/src must pass each {name} its string uses.
  */
 class LocaleParamsTest extends TestCase
@@ -41,19 +41,25 @@ class LocaleParamsTest extends TestCase
         $this->assertSame([], $missing);
     }
 
-    public function test_the_announcement_help_names_exactly_what_the_reward_fills_in(): void
+    public function test_the_announcement_legend_explains_exactly_what_the_reward_fills_in(): void
     {
-        $help = Yaml::parseFile(__DIR__.'/../../locale/en.yml')['ernestdefoe-community-goals']['forum']['form']['announce_body_help'];
-        preg_match_all('/\{(\w+)\}/', $help, $named);
+        $legend = Yaml::parseFile(__DIR__.'/../../locale/en.yml')['ernestdefoe-community-goals']['forum']['form']['fields'];
         preg_match_all("/'\\{(\\w+)\\}' =>/", file_get_contents(__DIR__.'/../../src/Reward/Announcement.php'), $filled);
-        preg_match("/const FIELDS = .*?\\[([^\\]]+)\\]/", file_get_contents(__DIR__.'/../../js/src/forum/components/GoalModal.tsx'), $js);
+        preg_match("/const FIELDS = \\[([^\\]]+)\\]/", file_get_contents(__DIR__.'/../../js/src/forum/components/GoalModal.tsx'), $js);
         preg_match_all("/'(\\w+)'/", $js[1] ?? '', $passed);
 
-        sort($named[1]);
+        $named = array_keys($legend);
+        sort($named);
         sort($filled[1]);
         sort($passed[1]);
-        $this->assertSame($filled[1], $named[1]);
+        $this->assertNotEmpty($filled[1]);
+        $this->assertSame($filled[1], $named);
         $this->assertSame($filled[1], $passed[1]);
+
+        // The legend is translated without parameters (t(`form.fields.${field}`)): no {name} may appear in it.
+        foreach ($legend as $field => $meaning) {
+            $this->assertDoesNotMatchRegularExpression('/\\{\\w+[,}]/', $meaning, "form.fields.$field");
+        }
     }
 
     private function flatten(array $tree, string $prefix = ''): array

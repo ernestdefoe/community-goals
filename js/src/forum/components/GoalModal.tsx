@@ -40,8 +40,9 @@ function local(date: Date): string {
 }
 
 const METRICS: Metric[] = ['replies', 'discussions', 'likes', 'members', 'tag_posts', 'custom'];
-// The announcement's fill-ins (Reward\Announcement), passed as themselves so the help shows their names.
-const FIELDS = Object.fromEntries(['title', 'progress', 'target', 'members', 'reward', 'top', 'link'].map((f) => [f, `{${f}}`]));
+// The announcement's fill-ins (Reward\Announcement). Their names are written out here, not translated:
+// Flarum's translator would read {title} in a string as a parameter.
+const FIELDS = ['title', 'progress', 'target', 'members', 'reward', 'top', 'link'];
 
 /**
  * Set a goal, or edit one. The rewards on offer depend on which extensions
@@ -307,7 +308,17 @@ export default class GoalModal extends FormModal<Attrs> {
                   {t('form.announce_body')}
                   <textarea className="FormControl" rows={3} maxlength={2000} bidi={this.announceBody} />
                 </label>
-                <p className="helpText">{t('form.announce_body_help', FIELDS)}</p>
+                <div className="helpText GoalModal-fields">
+                  <p>{t('form.announce_body_help')}</p>
+                  <dl>
+                    {FIELDS.map((field) => [
+                      <dt>
+                        <code>{`{${field}}`}</code>
+                      </dt>,
+                      <dd>{t(`form.fields.${field}`)}</dd>,
+                    ])}
+                  </dl>
+                </div>
               </div>
             )}
           </div>
