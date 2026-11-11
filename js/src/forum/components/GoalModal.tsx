@@ -40,6 +40,8 @@ function local(date: Date): string {
 }
 
 const METRICS: Metric[] = ['replies', 'discussions', 'likes', 'members', 'tag_posts', 'custom'];
+// The announcement's fill-ins (Reward\Announcement), passed as themselves so the help shows their names.
+const FIELDS = Object.fromEntries(['title', 'progress', 'target', 'members', 'reward', 'top', 'link'].map((f) => [f, `{${f}}`]));
 
 /**
  * Set a goal, or edit one. The rewards on offer depend on which extensions
@@ -305,7 +307,7 @@ export default class GoalModal extends FormModal<Attrs> {
                   {t('form.announce_body')}
                   <textarea className="FormControl" rows={3} maxlength={2000} bidi={this.announceBody} />
                 </label>
-                <p className="helpText">{t('form.announce_body_help')}</p>
+                <p className="helpText">{t('form.announce_body_help', FIELDS)}</p>
               </div>
             )}
           </div>

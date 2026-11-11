@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit
+    backupGlobals="false"
+    colors="true"
+    processIsolation="false"
+    stopOnFailure="false"
+    bootstrap="../vendor/autoload.php"
+>
+    <testsuites>
+        <testsuite name="Community Goals Unit Tests">
+            <directory suffix="Test.php">./unit</directory>
+        </testsuite>
+    </testsuites>
+</phpunit>
