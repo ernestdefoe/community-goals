@@ -86,13 +86,20 @@ class CountActivity
 
     private function safely(callable $count): void
     {
-        // Runs at once when no transaction is open.
-        $this->db->afterCommit(function () use ($count) {
+        $run = function () use ($count) {
             try {
                 $count();
             } catch (\Throwable $e) {
                 $this->log->warning('[community-goals] counting failed: '.$e->getMessage());
             }
-        });
+        };
+
+        // Runs at once when no transaction is open. It needs the transactions manager core binds
+        // (every flarum/core 2.x); without one, afterCommit throws and the count runs now instead.
+        try {
+            $this->db->afterCommit($run);
+        } catch (\RuntimeException) {
+            $run();
+        }
     }
 }
