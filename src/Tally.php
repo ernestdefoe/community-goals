@@ -27,7 +27,10 @@ use Psr\Log\LoggerInterface;
  */
 class Tally
 {
-    /** @var list<int> Goals reached inside a sync, finished once it commits. */
+    /** Tries per transaction: a lock conflict with a Recount or the queue is retried, not lost. */
+    public const ATTEMPTS = 3;
+
+    /** @var array<int, int> Goals reached inside a sync, finished once it commits. */
     private array $finishing = [];
 
     private bool $inSync = false;
@@ -146,7 +149,8 @@ class Tally
 
         $this->inSync = true;
         try {
-            $this->db->transaction(fn () => $this->syncLocked($goals, $scope, $id, $gone));
+            // Retried on a lock conflict (deadlock, MariaDB 1020): each attempt re-reads the ledger.
+            $this->db->transaction(fn () => $this->syncLocked($goals, $scope, $id, $gone), self::ATTEMPTS);
         } finally {
             $this->inSync = false;
         }
@@ -363,7 +367,8 @@ class Tally
                     ->update(['hit_at' => Carbon::now()->min($goal->ends_at)]);
 
                 if ($claimed) {
-                    $this->finishing[] = $goal->id;
+                    // Keyed: an attempt that was rolled back and retried claims it again. CompleteGoal checks hit_at.
+                    $this->finishing[$goal->id] = $goal->id;
                 }
             }
         }

@@ -63,7 +63,7 @@ class Recount
                 'contributors_count' => $contributors,
                 'counted_at' => Carbon::now(),
             ]);
-        });
+        }, Tally::ATTEMPTS);
 
         $this->tally->check($goal->id);
         $this->board->forget();

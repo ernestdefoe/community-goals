@@ -14,6 +14,7 @@ use Flarum\Post\Post;
 use Flarum\Tags\Event\DiscussionWasTagged;
 use Flarum\User\Event as UserEvent;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Database\ConnectionInterface;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -25,11 +26,18 @@ use Psr\Log\LoggerInterface;
  * 🚨 Counting must never break the thing being counted: a failure here is
  * logged and the post, like or sign-up goes through. The Recount button
  * repairs a goal that missed something.
+ *
+ * 🚨 And it never runs inside the transaction that saves it (core saves a new
+ * discussion and its first post in one): counting locks goal rows, and a lock
+ * conflict there (MariaDB 1020, a deadlock) rolls back the WHOLE transaction,
+ * so the discussion was lost even though the error was caught (showcase,
+ * 2026-11-12). Each count waits for the commit, and is dropped with a rollback.
  */
 class CountActivity
 {
     public function __construct(
         private readonly Tally $tally,
+        private readonly ConnectionInterface $db,
         private readonly LoggerInterface $log,
     ) {
     }
@@ -59,7 +67,8 @@ class CountActivity
         foreach ([DiscussionEvent\Hidden::class, DiscussionEvent\Restored::class] as $event) {
             $events->listen($event, fn ($e) => $this->safely(fn () => $this->tally->discussion($e->discussion->id)));
         }
-        // Before the delete: its posts go with it, without events of their own.
+        // Its posts go with it, without events of their own; "gone" reads only the ledger, so this
+        // still works once the delete has committed.
         $events->listen(DiscussionEvent\Deleting::class, fn ($e) => $this->safely(fn () => $this->tally->discussion($e->discussion->id, [], true)));
 
         $events->listen(UserEvent\Registered::class, fn ($e) => $e->user->is_email_confirmed ? $this->safely(fn () => $this->tally->member($e->user->id)) : null);
@@ -77,10 +86,13 @@ class CountActivity
 
     private function safely(callable $count): void
     {
-        try {
-            $count();
-        } catch (\Throwable $e) {
-            $this->log->warning('[community-goals] counting failed: '.$e->getMessage());
-        }
+        // Runs at once when no transaction is open.
+        $this->db->afterCommit(function () use ($count) {
+            try {
+                $count();
+            } catch (\Throwable $e) {
+                $this->log->warning('[community-goals] counting failed: '.$e->getMessage());
+            }
+        });
     }
 }
