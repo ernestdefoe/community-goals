@@ -44,18 +44,14 @@ return [
 
     new Extend\Locales(__DIR__.'/locale'),
 
+    // Goals themselves are the JSON:API resource; these four have no resource shape. The GETs
+    // sit beside it, not under it: the resource's /community-goals/{id} would shadow them.
     (new Extend\Routes('api'))
-        ->get('/community-goals', 'community-goals.index', Api\ListController::class)
-        ->get('/community-goals/board', 'community-goals.board', Api\BoardController::class)
-        ->get('/community-goals/options', 'community-goals.options', Api\OptionsController::class)
-        ->post('/community-goals', 'community-goals.create', Api\SaveController::class)
-        ->get('/community-goals/{id:\d+}', 'community-goals.show', Api\ShowController::class)
-        ->patch('/community-goals/{id:\d+}', 'community-goals.update', Api\SaveController::class)
-        ->delete('/community-goals/{id:\d+}', 'community-goals.delete', Api\DeleteController::class)
+        ->get('/community-goals-board', 'community-goals.board', Api\BoardController::class)
+        ->get('/community-goals-options', 'community-goals.options', Api\OptionsController::class)
         ->post('/community-goals/{id:\d+}/recount', 'community-goals.recount', Api\RecountController::class)
         ->post('/community-goals/{id:\d+}/progress', 'community-goals.progress', Api\ProgressController::class),
 
-    // Only because a notification's subject needs a resource; no endpoints.
     new Extend\ApiResource(Api\GoalResource::class),
 
     (new Extend\Notification())

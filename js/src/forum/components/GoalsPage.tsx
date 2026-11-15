@@ -13,7 +13,8 @@ import type Mithril from 'mithril';
 import GoalBar from './GoalBar';
 import TopModal from './TopModal';
 import { celebrate } from '../celebrate';
-import { type Goal, type UserRow, METRIC_ICONS, call, number, percent, pushUsers, setSkew, statusOf, t, timing, unit } from '../common';
+import { type Goal, METRIC_ICONS, call, number, percent, setSkew, statusOf, t, timing, unit } from '../common';
+import { PER_PAGE, goalPage, oneGoal } from '../api';
 import { IndexSidebar, PageStructure, openGoalForm } from '../goals';
 
 declare const m: Mithril.Static;
@@ -22,9 +23,7 @@ interface List {
   open: Goal[];
   past: Goal[];
   more: boolean;
-  users: UserRow[];
   canManage: boolean;
-  now: string;
 }
 
 const MEDALS = ['🥇', '🥈', '🥉'];
@@ -60,12 +59,16 @@ export default class GoalsPage extends Page {
   }
 
   load() {
-    call<List>('GET', '', undefined, !!this.data)
-      .then((data) => {
-        pushUsers(data.users);
-        setSkew(data.now);
+    const quiet = !!this.data;
+    Promise.all([goalPage('open', 0, 20, quiet), goalPage('past', 0, PER_PAGE, quiet)])
+      .then(([open, past]) => {
+        setSkew(open.now);
+        const data: List = { open: open.goals, past: past.goals, more: past.more, canManage: !!app.forum.attribute('communityGoalsCanManage') };
         // Pages of history already shown stay; the first page is fetched again.
-        if (this.data && this.page > 1) data.past = [...data.past, ...this.data.past.slice(data.past.length)];
+        if (this.data && this.page > 1) {
+          data.past = [...data.past, ...this.data.past.slice(data.past.length)];
+          data.more = this.data.more;
+        }
         this.data = data;
         this.error = false;
         m.redraw.sync();
@@ -80,10 +83,9 @@ export default class GoalsPage extends Page {
   more() {
     const data = this.data!;
     this.loadingMore = true;
-    call<List>('GET', '?page=' + (this.page + 1))
+    goalPage('past', this.page * PER_PAGE, PER_PAGE)
       .then((next) => {
-        pushUsers(next.users);
-        data.past.push(...next.past);
+        data.past.push(...next.goals);
         data.more = next.more;
         this.page++;
       })
@@ -338,7 +340,7 @@ export default class GoalsPage extends Page {
 
   edit(goal: Goal) {
     // The full goal (with its rewards) is only sent to managers, on its own endpoint.
-    call<{ goal: Goal }>('GET', `/${goal.id}`).then((data) => openGoalForm({ goal: data.goal, onsave: () => this.load() }));
+    oneGoal(goal.id).then((full) => openGoalForm({ goal: full, onsave: () => this.load() }));
   }
 
   recount(goal: Goal) {

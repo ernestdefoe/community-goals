@@ -16,6 +16,7 @@ use PHPUnit\Framework\Attributes\Test;
 class GoalsTest extends TestCase
 {
     use RetrievesAuthorizedUsers;
+    use CallsGoalsApi;
 
     protected function setUp(): void
     {
@@ -42,18 +43,6 @@ class GoalsTest extends TestCase
                 ['permission' => 'discussion.likePosts', 'group_id' => Group::MEMBER_ID],
             ],
         ]);
-    }
-
-    /** @return array{int, array<string, mixed>|null} */
-    private function api(string $method, string $path, ?int $as, array $body = []): array
-    {
-        $options = $as ? ['authenticatedAs' => $as] : [];
-        if ($method !== 'GET') {
-            $options['json'] = $body;
-        }
-        $response = $this->send($this->request($method, '/api/community-goals'.$path, $options));
-
-        return [$response->getStatusCode(), json_decode((string) $response->getBody(), true)];
     }
 
     private function goal(array $overrides = []): int
@@ -244,9 +233,9 @@ class GoalsTest extends TestCase
         $this->reply(3);
         $this->assertSame(3, $this->fresh($id)->progress);
 
-        $this->assertSame(200, $this->api('POST', "/$id/progress", 1, ['add' => 4])[0]);
+        $this->assertSame(204, $this->api('POST', "/$id/progress", 1, ['add' => 4])[0]);
         $this->assertSame(7, $this->fresh($id)->progress);
-        $this->assertSame(200, $this->api('POST', "/$id/progress", 1, ['set' => 10])[0]);
+        $this->assertSame(204, $this->api('POST', "/$id/progress", 1, ['set' => 10])[0]);
         $this->assertNotNull($this->fresh($id)->hit_at);
 
         $counted = $this->goal();
@@ -265,10 +254,10 @@ class GoalsTest extends TestCase
         $this->assertSame(403, $this->api('DELETE', "/$id", 3)[0]);
         $this->assertSame(403, $this->api('POST', "/$id/recount", 3)[0]);
 
-        [$status, $list] = $this->api('GET', '', null);
+        [$status, $list] = $this->api('GET', '?filter[when]=open', null);
         $this->assertSame(200, $status);
-        $this->assertSame('Reply Rally', $list['open'][0]['title']);
-        $this->assertFalse($list['canManage']);
+        $this->assertSame('Reply Rally', $list['data'][0]['attributes']['title']);
+        $this->assertArrayNotHasKey('rewards', $list['data'][0]['attributes'], 'Reward settings are for managers.');
 
         [$status, $show] = $this->api('GET', "/$id", 3);
         $this->assertSame(200, $status);

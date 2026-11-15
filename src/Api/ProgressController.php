@@ -7,12 +7,13 @@ use ErnestDefoe\CommunityGoals\Goals;
 use ErnestDefoe\CommunityGoals\Present;
 use Flarum\User\User;
 use Illuminate\Support\Arr;
+use Laminas\Diactoros\Response\EmptyResponse;
 use Psr\Http\Message\ServerRequestInterface;
 
 /** For a goal counted by hand: {add: n} or {set: n}. */
 class ProgressController extends Controller
 {
-    public function __construct(Present $present, private readonly Goals $goals, private readonly ShowController $show)
+    public function __construct(Present $present, private readonly Goals $goals)
     {
         parent::__construct($present);
     }
@@ -29,6 +30,6 @@ class ProgressController extends Controller
             isset($body['set']) ? (int) $body['set'] : null,
         );
 
-        return $this->show->detail($goal->refresh(), $actor);
+        return new EmptyResponse(204);
     }
 }

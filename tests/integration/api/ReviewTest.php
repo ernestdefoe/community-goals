@@ -21,6 +21,7 @@ use Symfony\Component\Console\Output\BufferedOutput;
 class ReviewTest extends TestCase
 {
     use RetrievesAuthorizedUsers;
+    use CallsGoalsApi;
 
     protected function setUp(): void
     {
@@ -48,18 +49,6 @@ class ReviewTest extends TestCase
                 ['permission' => 'communityGoals.manage', 'group_id' => Group::MODERATOR_ID],
             ],
         ]);
-    }
-
-    /** @return array{int, array<string, mixed>|null} */
-    private function api(string $method, string $path, ?int $as, array $body = []): array
-    {
-        $options = $as ? ['authenticatedAs' => $as] : [];
-        if ($method !== 'GET') {
-            $options['json'] = $body;
-        }
-        $response = $this->send($this->request($method, '/api/community-goals'.$path, $options));
-
-        return [$response->getStatusCode(), json_decode((string) $response->getBody(), true)];
     }
 
     private function create(array $body, int $as = 1, int $expect = 201): ?int

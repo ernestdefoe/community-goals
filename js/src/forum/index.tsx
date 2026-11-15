@@ -10,16 +10,12 @@ export { default as extend } from './extend';
 
 /*
  * forum.js is on every page, so it only carries what the discussion list
- * shows: the route, the sidebar link, the banner (or sidebar card) with its
+ * shows: the route (extend.ts), the sidebar link, the banner (or sidebar card) with its
  * bar and celebrations, and the notification. The Goals page and the forms
  * are one chunk (goals), fetched when first opened.
  */
 
-const page = () => import('./goals').then(async (goals) => (await goals.loadCore(), { default: goals.GoalsPage }));
-
 app.initializers.add('ernestdefoe/community-goals', () => {
-  app.routes['community-goals'] = { path: '/goals', component: page };
-
   const placement = () => app.forum.attribute<string>('communityGoalsPlacement') || 'hero';
 
   // String form: these components live in lazy chunks, and extending an imported copy patches one core never renders.

@@ -23,7 +23,7 @@ use PHPUnit\Framework\Attributes\Test;
  * counted (showcase, 2026-11-12: a queued job changed a goal while core was
  * saving a new discussion; MariaDB refused the count's locking read with
  * error 1020 and rolled back core's whole transaction, so the discussion 500'd).
- * The two concurrency tests need MySQL/MariaDB: SQLite has no row locks.
+ * The two row-lock tests need MySQL, MariaDB or PostgreSQL: SQLite has no row locks.
  *
  * The harness runs each test in a transaction it rolls back, which would make
  * core's save a nested one that never commits (and hide the goal from other
@@ -33,6 +33,7 @@ use PHPUnit\Framework\Attributes\Test;
 class ConcurrencyTest extends TestCase
 {
     use RetrievesAuthorizedUsers;
+    use CallsGoalsApi;
 
     protected function setUp(): void
     {
@@ -49,19 +50,16 @@ class ConcurrencyTest extends TestCase
 
     private function goal(): int
     {
-        $response = $this->send($this->request('POST', '/api/community-goals', [
-            'authenticatedAs' => 1,
-            'json' => [
-                'title' => 'Discussion Drive',
-                'metric' => 'discussions',
-                'target' => 10,
-                'startsAt' => Carbon::now()->subDay()->toIso8601String(),
-                'endsAt' => Carbon::now()->addDays(6)->toIso8601String(),
-            ],
-        ]));
-        $this->assertSame(201, $response->getStatusCode(), (string) $response->getBody());
+        [$status, $json] = $this->api('POST', '', 1, [
+            'title' => 'Discussion Drive',
+            'metric' => 'discussions',
+            'target' => 10,
+            'startsAt' => Carbon::now()->subDay()->toIso8601String(),
+            'endsAt' => Carbon::now()->addDays(6)->toIso8601String(),
+        ]);
+        $this->assertSame(201, $status, json_encode($json));
 
-        $id = json_decode((string) $response->getBody(), true)['goal']['id'];
+        $id = $json['goal']['id'];
         $this->database()->commit();
         $this->committed = true;
         // The harness runs after-commit callbacks at once (its wrapper never commits); from here on
@@ -89,14 +87,14 @@ class ConcurrencyTest extends TestCase
         parent::tearDown();
     }
 
-    private function startDiscussion(): void
+    private function startDiscussion(string $title = 'Hello there'): void
     {
         $response = $this->send($this->request('POST', '/api/discussions', [
             'authenticatedAs' => 2,
-            'json' => ['data' => ['type' => 'discussions', 'attributes' => ['title' => 'Hello there', 'content' => 'A new discussion']]],
+            'json' => ['data' => ['type' => 'discussions', 'attributes' => ['title' => $title, 'content' => 'A new discussion']]],
         ]));
         $this->assertSame(201, $response->getStatusCode(), (string) $response->getBody());
-        $this->assertSame(1, Discussion::query()->where('title', 'Hello there')->count());
+        $this->assertSame(1, Discussion::query()->where('title', $title)->count());
     }
 
     private function progress(int $goal): int
@@ -106,21 +104,23 @@ class ConcurrencyTest extends TestCase
 
     private function needsRowLocks(): void
     {
-        if (! in_array($this->database()->getDriverName(), ['mysql', 'mariadb'], true)) {
-            $this->markTestSkipped('Needs MySQL or MariaDB (row locks).');
+        if (! in_array($this->database()->getDriverName(), ['mysql', 'mariadb', 'pgsql'], true)) {
+            $this->markTestSkipped('Needs MySQL, MariaDB or PostgreSQL (row locks).');
         }
     }
 
-    /** A second connection, as a queued job would have: [dsn, user, password, table]. */
+    /** A second connection, as a queued job would have: [dsn, user, password, quoted table]. */
     private function otherConnection(): array
     {
         $config = $this->database()->getConfig();
+        $pgsql = $this->database()->getDriverName() === 'pgsql';
+        $table = $this->database()->getTablePrefix().'community_goals';
 
         return [
-            "mysql:host={$config['host']};port={$config['port']};dbname={$config['database']}",
+            ($pgsql ? 'pgsql' : 'mysql').":host={$config['host']};port={$config['port']};dbname={$config['database']}",
             $config['username'],
             $config['password'],
-            $this->database()->getTablePrefix().'community_goals',
+            $pgsql ? "\"$table\"" : "`$table`",
         ];
     }
 
@@ -141,7 +141,7 @@ class ConcurrencyTest extends TestCase
             }
             $done = true;
             $db->table('community_goals')->where('id', $goal)->value('progress');
-            (new \PDO($dsn, $user, $password))->exec("UPDATE `$table` SET title = 'Discussion Drive!' WHERE id = $goal");
+            (new \PDO($dsn, $user, $password))->exec("UPDATE $table SET title = 'Discussion Drive!' WHERE id = $goal");
         });
 
         $this->startDiscussion();
@@ -157,8 +157,8 @@ class ConcurrencyTest extends TestCase
 
         // A recount on another process: locks the goal, sets its number, holds it 2 s.
         $script = '$p = new PDO($argv[1], $argv[2], $argv[3]); $p->beginTransaction();'
-            .' $p->query("SELECT id FROM `$argv[4]` WHERE id = $argv[5] FOR UPDATE");'
-            .' $p->exec("UPDATE `$argv[4]` SET progress = 5 WHERE id = $argv[5]");'
+            .' $p->query("SELECT id FROM $argv[4] WHERE id = $argv[5] FOR UPDATE");'
+            .' $p->exec("UPDATE $argv[4] SET progress = 5 WHERE id = $argv[5]");'
             .' echo "locked\n"; sleep(2); $p->commit();';
         $job = proc_open([PHP_BINARY, '-d', 'display_errors=stderr', '-r', $script, $dsn, $user, $password, $table, (string) $goal], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
         $this->assertSame('locked', trim((string) fgets($pipes[1])), (string) stream_get_contents($pipes[2]));

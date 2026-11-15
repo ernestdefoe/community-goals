@@ -8,6 +8,7 @@ import Stream from 'flarum/common/utils/Stream';
 import extractText from 'flarum/common/utils/extractText';
 import type Mithril from 'mithril';
 import { type Goal, type Metric, call, t } from '../common';
+import { saveGoal } from '../api';
 
 declare const m: Mithril.Static;
 
@@ -103,7 +104,7 @@ export default class GoalModal extends FormModal<Attrs> {
       this.preset('7');
     }
 
-    call<Options>('GET', '/options').then((options) => {
+    call<Options>('GET', '-options').then((options) => {
       this.options = options;
       m.redraw();
     });
@@ -404,7 +405,7 @@ export default class GoalModal extends FormModal<Attrs> {
     const body = this.data();
     if (complete) body.complete = true;
 
-    call(goal ? 'PATCH' : 'POST', goal ? `/${goal.id}` : '', body)
+    saveGoal(goal ? goal.id : null, body)
       .then(() => {
         this.hide();
         this.attrs.onsave?.();

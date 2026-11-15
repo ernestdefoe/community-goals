@@ -32,7 +32,7 @@ export default class GoalBanner extends Component<Attrs> {
 
     if (Date.now() - fetchedAt > 60000) {
       fetchedAt = Date.now();
-      call<{ goals: Goal[]; now: string }>('GET', '/board', undefined, true)
+      call<{ goals: Goal[]; now: string }>('GET', '-board', undefined, true)
         .then((data) => {
           setSkew(data.now);
           app.forum.pushAttributes({ communityGoals: data.goals });

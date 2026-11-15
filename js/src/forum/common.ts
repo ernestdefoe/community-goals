@@ -28,7 +28,7 @@ export interface Goal {
   endsAt: string;
   hitAt: string | null;
   contributors: number;
-  /** On /goals: [userId, count] of the top helpers, and the viewer's own count. */
+  /** On /goals: [userId, count] of the top helpers (in the store via include=helpers), and the viewer's own count. */
   top?: [number, number][];
   mine?: number;
   rank?: number | null;
@@ -38,16 +38,9 @@ export interface Goal {
   tagId?: number | null;
 }
 
-export interface UserRow {
-  id: number;
-  username: string;
-  displayName: string;
-  slug: string;
-  avatarUrl: string | null;
-}
-
 export const t = (key: string, params: Record<string, any> = {}) => app.translator.trans(`ernestdefoe-community-goals.forum.${key}`, params);
 
+/** `path` follows /community-goals: "/3", "/3/recount", or "-board" and "-options", which sit beside the resource. */
 export function call<T>(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, body?: Record<string, any>, quiet = false): Promise<T> {
   return app.request<T>({
     method,
@@ -59,17 +52,6 @@ export function call<T>(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: strin
       throw error;
     },
   });
-}
-
-/** People arrive as one compact list; the store lets avatar() and username() draw them the usual way. */
-export function pushUsers(users: UserRow[]): void {
-  for (const user of users) {
-    app.store.pushObject({
-      type: 'users',
-      id: String(user.id),
-      attributes: { username: user.username, displayName: user.displayName, slug: user.slug, avatarUrl: user.avatarUrl },
-    } as any);
-  }
 }
 
 export function number(value: number): string {

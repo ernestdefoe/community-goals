@@ -78,6 +78,12 @@ class Goal extends AbstractModel
         return $this->belongsTo(User::class, 'user_id');
     }
 
+    /** Only while Tags is on (GoalResource declares the relationship then). @return BelongsTo<\Flarum\Tags\Tag, $this> */
+    public function tag(): BelongsTo
+    {
+        return $this->belongsTo(\Flarum\Tags\Tag::class);
+    }
+
     /** upcoming, live, hit (reached and still running), done (reached, over) or missed. */
     public function status(?Carbon $now = null): string
     {

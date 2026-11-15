@@ -6,7 +6,8 @@ import Link from 'flarum/common/components/Link';
 import username from 'flarum/common/helpers/username';
 import classList from 'flarum/common/utils/classList';
 import type Mithril from 'mithril';
-import { type Goal, type UserRow, call, number, pushUsers, t, unit } from '../common';
+import { type Goal, number, t, unit } from '../common';
+import { oneGoal } from '../api';
 
 declare const m: Mithril.Static;
 
@@ -16,13 +17,12 @@ interface Attrs extends IInternalModalAttrs {
 
 /** A goal's ten biggest helpers, and where the viewer stands. */
 export default class TopModal extends Modal<Attrs> {
-  data: { goal: Goal; users: UserRow[] } | null = null;
+  data: { goal: Goal } | null = null;
 
   oninit(vnode: Mithril.Vnode<Attrs, this>) {
     super.oninit(vnode);
-    call<{ goal: Goal; users: UserRow[] }>('GET', `/${this.attrs.goal.id}`).then((data) => {
-      pushUsers(data.users);
-      this.data = data;
+    oneGoal(this.attrs.goal.id).then((goal) => {
+      this.data = { goal };
       m.redraw();
     });
   }
