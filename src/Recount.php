@@ -33,7 +33,7 @@ class Recount
             return;
         }
 
-        $this->db->transaction(function () use ($goal) {
+        $this->tally->serially([$goal->id], fn () => $this->db->transaction(function () use ($goal) {
             // Tally waits on this lock, so nothing is counted twice or lost while the ledger is rebuilt.
             $this->db->table('community_goals')->where('id', $goal->id)->lockForUpdate()->value('id');
             $this->db->table('community_goal_entries')->where('goal_id', $goal->id)->delete();
@@ -63,7 +63,7 @@ class Recount
                 'contributors_count' => $contributors,
                 'counted_at' => Carbon::now(),
             ]);
-        }, Tally::ATTEMPTS);
+        }, Tally::ATTEMPTS));
 
         $this->tally->check($goal->id);
         $this->board->forget();

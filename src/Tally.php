@@ -4,6 +4,8 @@ namespace ErnestDefoe\CommunityGoals;
 
 use Carbon\Carbon;
 use ErnestDefoe\CommunityGoals\Job\CompleteGoal;
+use Illuminate\Contracts\Cache\LockProvider;
+use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Contracts\Queue\Queue;
 use Illuminate\Database\ConnectionInterface;
 use Psr\Log\LoggerInterface;
@@ -30,6 +32,11 @@ class Tally
     /** Tries per transaction: a lock conflict with a Recount or the queue is retried, not lost. */
     public const ATTEMPTS = 3;
 
+    /** A goal's writer lock: held at most this long, waited for at most $lockWait seconds. */
+    public const LOCK_SECONDS = 30;
+
+    public static int $lockWait = 10;
+
     /** @var array<int, int> Goals reached inside a sync, finished once it commits. */
     private array $finishing = [];
 
@@ -42,6 +49,7 @@ class Tally
         private readonly Board $board,
         private readonly Queue $queue,
         private readonly LoggerInterface $log,
+        private readonly Cache $cache,
     ) {
     }
 
@@ -150,11 +158,50 @@ class Tally
         $this->inSync = true;
         try {
             // Retried on a lock conflict (deadlock, MariaDB 1020): each attempt re-reads the ledger.
-            $this->db->transaction(fn () => $this->syncLocked($goals, $scope, $id, $gone), self::ATTEMPTS);
+            $this->serially(
+                array_map(fn (Goal $g) => $g->id, $goals),
+                fn () => $this->db->transaction(fn () => $this->syncLocked($goals, $scope, $id, $gone), self::ATTEMPTS),
+            );
         } finally {
             $this->inSync = false;
         }
         $this->finish();
+    }
+
+    /**
+     * One writer per goal at a time, on every database: the row lock in
+     * syncLocked (and Recount's) is a no-op on SQLite. Cache locks, shared by
+     * every process on the forum's cache, taken in id order so two writers
+     * can't wait on each other.
+     *
+     * @template T
+     * @param list<int> $goalIds
+     * @param callable(): T $run
+     * @return T
+     */
+    public function serially(array $goalIds, callable $run): mixed
+    {
+        $store = $this->cache->getStore();
+        if (! $store instanceof LockProvider) {
+            return $run();
+        }
+
+        $goalIds = array_values(array_unique($goalIds));
+        sort($goalIds);
+        $held = [];
+        try {
+            foreach ($goalIds as $goalId) {
+                $lock = $store->lock('community-goals.goal.'.$goalId, self::LOCK_SECONDS);
+                $lock->block(self::$lockWait);
+                $held[] = $lock;
+            }
+
+            return $run();
+        } finally {
+            foreach (array_reverse($held) as $lock) {
+                $lock->release();
+            }
+        }
     }
 
     /** @param list<Goal> $goals */

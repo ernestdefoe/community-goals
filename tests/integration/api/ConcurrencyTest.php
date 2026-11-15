@@ -3,6 +3,8 @@
 namespace ErnestDefoe\CommunityGoals\Tests\integration\api;
 
 use Carbon\Carbon;
+use ErnestDefoe\CommunityGoals\Goal;
+use ErnestDefoe\CommunityGoals\Recount;
 use ErnestDefoe\CommunityGoals\Tally;
 use Flarum\Discussion\Discussion;
 use Flarum\Extend\ExtenderInterface;
@@ -12,6 +14,7 @@ use Flarum\Post\Event\Saving;
 use Flarum\Testing\integration\RetrievesAuthorizedUsers;
 use Flarum\Testing\integration\TestCase;
 use Flarum\User\User;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\DatabaseTransactionsManager;
@@ -75,6 +78,7 @@ class ConcurrencyTest extends TestCase
 
     protected function tearDown(): void
     {
+        Tally::$lockWait = 10;
         if ($this->committed) {
             $db = $this->database();
             foreach (['community_goal_entries', 'community_goal_contributors', 'community_goals', 'posts', 'discussion_user', 'discussions', 'access_tokens'] as $table) {
@@ -166,6 +170,33 @@ class ConcurrencyTest extends TestCase
         $this->startDiscussion();
         proc_close($job);
         $this->assertSame(6, $this->progress($goal));
+    }
+
+    #[Test]
+    public function a_writer_waits_for_the_goal_lock_on_every_database(): void
+    {
+        // SQLite has no row locks (lockForUpdate is a no-op there): the cache lock is what serialises.
+        $goal = $this->goal();
+        Tally::$lockWait = 1;
+        $lock = $this->app()->getContainer()->make('cache.store')->getStore()->lock('community-goals.goal.'.$goal, 30);
+        $this->assertTrue($lock->get());
+
+        // Another writer holds the goal: the count waits, gives up, and the discussion still saves.
+        $this->startDiscussion('First');
+        $this->assertSame(0, $this->progress($goal));
+        // A Recount waits for it too.
+        try {
+            $this->app()->getContainer()->make(Recount::class)->run(Goal::query()->findOrFail($goal));
+            $this->fail('Recount ran while another writer held the goal.');
+        } catch (LockTimeoutException) {
+        }
+
+        $lock->release();
+        $this->startDiscussion('Second');
+        $this->assertSame(1, $this->progress($goal));
+        // The missed one comes back with a Recount, as the docs say.
+        $this->app()->getContainer()->make(Recount::class)->run(Goal::query()->findOrFail($goal));
+        $this->assertSame(2, $this->progress($goal));
     }
 
     #[Test]
