@@ -4,6 +4,8 @@ namespace ErnestDefoe\CommunityGoals;
 
 use Carbon\Carbon;
 use ErnestDefoe\CommunityGoals\Job\CompleteGoal;
+use ErnestDefoe\CommunityGoals\Job\SyncScope;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Contracts\Queue\Queue;
@@ -32,10 +34,14 @@ class Tally
     /** Tries per transaction: a lock conflict with a Recount or the queue is retried, not lost. */
     public const ATTEMPTS = 3;
 
-    /** A goal's writer lock: held at most this long, waited for at most $lockWait seconds. */
+    /** A goal's writer lock is held at most this long. */
     public const LOCK_SECONDS = 30;
 
-    public static int $lockWait = 10;
+    /**
+     * How long queued work (SyncScope, Recount) waits for a busy goal before
+     * the queue tries again later. A request never waits (see sync()).
+     */
+    public const LOCK_WAIT = 1;
 
     /** @var array<int, int> Goals reached inside a sync, finished once it commits. */
     private array $finishing = [];
@@ -146,22 +152,33 @@ class Tally
      * Make the ledger at one scope match what should be counted there, for
      * every goal given that the scope can affect.
      *
+     * Called from a request it never waits: if another writer holds one of
+     * the goals, the same sync is queued (SyncScope) and the request goes on.
+     * The queued job waits up to LOCK_WAIT, so the count stays exact.
+     *
      * @param list<Goal> $goals
      */
-    public function sync(array $goals, string $scope, int $id, bool $gone = false): void
+    public function sync(array $goals, string $scope, int $id, bool $gone = false, int $wait = 0): void
     {
         $goals = array_values(array_filter($goals, fn (Goal $goal) => $this->counting->affects($goal, $scope)));
         if (! $goals) {
             return;
         }
+        $goalIds = array_map(fn (Goal $g) => $g->id, $goals);
 
         $this->inSync = true;
         try {
             // Retried on a lock conflict (deadlock, MariaDB 1020): each attempt re-reads the ledger.
             $this->serially(
-                array_map(fn (Goal $g) => $g->id, $goals),
+                $goalIds,
                 fn () => $this->db->transaction(fn () => $this->syncLocked($goals, $scope, $id, $gone), self::ATTEMPTS),
+                $wait,
             );
+        } catch (LockTimeoutException $busy) {
+            if ($wait) {
+                throw $busy;
+            }
+            $this->queue->push(new SyncScope($goalIds, $scope, $id, $gone));
         } finally {
             $this->inSync = false;
         }
@@ -174,12 +191,15 @@ class Tally
      * every process on the forum's cache, taken in id order so two writers
      * can't wait on each other.
      *
+     * Waits up to $wait seconds for each goal (0: not at all), then throws
+     * LockTimeoutException.
+     *
      * @template T
      * @param list<int> $goalIds
      * @param callable(): T $run
      * @return T
      */
-    public function serially(array $goalIds, callable $run): mixed
+    public function serially(array $goalIds, callable $run, int $wait = self::LOCK_WAIT): mixed
     {
         $store = $this->cache->getStore();
         if (! $store instanceof LockProvider) {
@@ -192,7 +212,11 @@ class Tally
         try {
             foreach ($goalIds as $goalId) {
                 $lock = $store->lock('community-goals.goal.'.$goalId, self::LOCK_SECONDS);
-                $lock->block(self::$lockWait);
+                if ($wait) {
+                    $lock->block($wait);
+                } elseif (! $lock->get()) {
+                    throw new LockTimeoutException();
+                }
                 $held[] = $lock;
             }
 

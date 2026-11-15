@@ -5,6 +5,7 @@ namespace ErnestDefoe\CommunityGoals\Tests\integration\api;
 use Carbon\Carbon;
 use ErnestDefoe\CommunityGoals\Goal;
 use ErnestDefoe\CommunityGoals\Recount;
+use ErnestDefoe\CommunityGoals\Job\SyncScope;
 use ErnestDefoe\CommunityGoals\Tally;
 use Flarum\Discussion\Discussion;
 use Flarum\Extend\ExtenderInterface;
@@ -17,8 +18,10 @@ use Flarum\User\User;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Contracts\Queue\Queue;
 use Illuminate\Database\DatabaseTransactionsManager;
 use Illuminate\Database\QueryException;
+use Illuminate\Queue\NullQueue;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
@@ -78,7 +81,6 @@ class ConcurrencyTest extends TestCase
 
     protected function tearDown(): void
     {
-        Tally::$lockWait = 10;
         if ($this->committed) {
             $db = $this->database();
             foreach (['community_goal_entries', 'community_goal_contributors', 'community_goals', 'posts', 'discussion_user', 'discussions', 'access_tokens'] as $table) {
@@ -173,18 +175,47 @@ class ConcurrencyTest extends TestCase
     }
 
     #[Test]
-    public function a_writer_waits_for_the_goal_lock_on_every_database(): void
+    public function a_busy_goal_never_holds_a_save_and_the_count_still_arrives(): void
     {
-        // SQLite has no row locks (lockForUpdate is a no-op there): the cache lock is what serialises.
+        // Jobs are kept, not run inline as the harness's sync queue would, so the test can run them later.
+        $queue = new RecordingQueue();
+        $this->extend(new class($queue) implements ExtenderInterface {
+            public function __construct(private RecordingQueue $queue)
+            {
+            }
+
+            public function extend(Container $container, ?Extension $extension = null): void
+            {
+                $container->instance(Queue::class, $this->queue);
+            }
+        });
         $goal = $this->goal();
-        Tally::$lockWait = 1;
+        $queue->jobs = [];
+
+        // Another writer holds the goal (SQLite has no row locks: the cache lock is what serialises).
         $lock = $this->app()->getContainer()->make('cache.store')->getStore()->lock('community-goals.goal.'.$goal, 30);
         $this->assertTrue($lock->get());
 
-        // Another writer holds the goal: the count waits, gives up, and the discussion still saves.
+        $started = microtime(true);
         $this->startDiscussion('First');
+        $this->assertLessThan(1.5, microtime(true) - $started, 'The save waited for the busy goal.');
         $this->assertSame(0, $this->progress($goal));
-        // A Recount waits for it too.
+        // The post and the discussion are each queued (Posted and Started both count).
+        $syncs = array_values(array_filter($queue->jobs, fn ($job) => $job instanceof SyncScope));
+        $this->assertNotEmpty($syncs);
+        $run = function () use ($syncs) {
+            foreach ($syncs as $job) {
+                $this->app()->getContainer()->call([$job, 'handle']);
+            }
+        };
+
+        // While it's held, a job waits Tally::LOCK_WAIT and hands the queue back the job to retry.
+        try {
+            $run();
+            $this->fail('The job counted while another writer held the goal.');
+        } catch (LockTimeoutException) {
+        }
+        // Recount waits for it too.
         try {
             $this->app()->getContainer()->make(Recount::class)->run(Goal::query()->findOrFail($goal));
             $this->fail('Recount ran while another writer held the goal.');
@@ -192,10 +223,12 @@ class ConcurrencyTest extends TestCase
         }
 
         $lock->release();
+        $run();
+        $this->assertSame(1, $this->progress($goal), 'The queued count arrived.');
+        $run();
+        $this->assertSame(1, $this->progress($goal), 'Running it twice counts once.');
+
         $this->startDiscussion('Second');
-        $this->assertSame(1, $this->progress($goal));
-        // The missed one comes back with a Recount, as the docs say.
-        $this->app()->getContainer()->make(Recount::class)->run(Goal::query()->findOrFail($goal));
         $this->assertSame(2, $this->progress($goal));
     }
 
@@ -218,7 +251,7 @@ class ConcurrencyTest extends TestCase
 /** Fails like a deadlock does: the database rolls back the whole transaction it ran in. */
 class DeadlockingTally extends Tally
 {
-    public function sync(array $goals, string $scope, int $id, bool $gone = false): void
+    public function sync(array $goals, string $scope, int $id, bool $gone = false, int $wait = 0): void
     {
         $pdo = resolve(\Illuminate\Database\ConnectionInterface::class)->getPdo();
         if ($pdo->inTransaction()) {
@@ -226,5 +259,19 @@ class DeadlockingTally extends Tally
         }
 
         throw new QueryException('flarum', 'select 1', [], new \PDOException('SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock'));
+    }
+}
+
+/** A queue that keeps what is pushed, for a test to run when it chooses. */
+class RecordingQueue extends NullQueue
+{
+    /** @var list<object> */
+    public array $jobs = [];
+
+    public function push($job, $data = '', $queue = null)
+    {
+        $this->jobs[] = $job;
+
+        return null;
     }
 }
