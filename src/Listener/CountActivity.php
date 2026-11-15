@@ -45,25 +45,12 @@ class CountActivity
     public function subscribe(Dispatcher $events): void
     {
         $events->listen(PostEvent\Posted::class, fn ($e) => $this->post($e->post, [Goal::REPLIES, Goal::TAG_POSTS]));
-        foreach ([PostEvent\Hidden::class, PostEvent\Restored::class, PostEvent\Deleted::class, PostWasApproved::class] as $event) {
+        foreach ([PostEvent\Hidden::class, PostEvent\Restored::class, PostEvent\Deleted::class] as $event) {
             $events->listen($event, fn ($e) => $this->post($e->post));
-        }
-        foreach ([PostWasLiked::class, PostWasUnliked::class] as $event) {
-            $events->listen($event, fn ($e) => $this->post($e->post, [Goal::LIKES]));
         }
 
         // Tags may be saved after the first post, so a new discussion is looked at as a whole too.
         $events->listen(DiscussionEvent\Started::class, fn ($e) => $this->safely(fn () => $this->tally->discussion($e->discussion->id, [Goal::DISCUSSIONS, Goal::TAG_POSTS])));
-        // Re-tagged: a tag goal gains or loses it, and a move into (or out of) a
-        // staff-only tag changes what a member can read, so every metric looks again.
-        // (Changing a TAG's permissions moves nothing by itself: that needs a Recount.)
-        $events->listen(DiscussionWasTagged::class, fn ($e) => $this->safely(fn () => $this->tally->discussion($e->discussion->id)));
-        // FoF Merge Discussions moves posts into another discussion without post events.
-        $events->listen(DiscussionWasMerged::class, fn ($e) => $this->safely(fn () => $this->tally->merged(
-            $e->discussion->id,
-            $e->mergedDiscussions->pluck('id')->map(fn ($id) => (int) $id)->all(),
-            $e->posts->pluck('id')->map(fn ($id) => (int) $id)->all(),
-        )));
         foreach ([DiscussionEvent\Hidden::class, DiscussionEvent\Restored::class] as $event) {
             $events->listen($event, fn ($e) => $this->safely(fn () => $this->tally->discussion($e->discussion->id)));
         }
@@ -74,6 +61,45 @@ class CountActivity
         $events->listen(UserEvent\Registered::class, fn ($e) => $e->user->is_email_confirmed ? $this->safely(fn () => $this->tally->member($e->user->id)) : null);
         $events->listen(UserEvent\Activated::class, fn ($e) => $this->safely(fn () => $this->tally->member($e->user->id)));
         $events->listen(UserEvent\Deleting::class, fn ($e) => $this->safely(fn () => $this->tally->forgetUser($e->user->id)));
+    }
+
+    /*
+     * Events of optional extensions: extend.php listens to each only while its
+     * extension is on (Extend\Conditional), so none of their classes is needed
+     * otherwise.
+     */
+
+    /** flarum/likes */
+    public function liked(PostWasLiked|PostWasUnliked $event): void
+    {
+        $this->post($event->post, [Goal::LIKES]);
+    }
+
+    /** flarum/approval */
+    public function approved(PostWasApproved $event): void
+    {
+        $this->post($event->post);
+    }
+
+    /**
+     * flarum/tags. Re-tagged: a tag goal gains or loses it, and a move into (or
+     * out of) a staff-only tag changes what a member can read, so every metric
+     * looks again. (Changing a TAG's permissions moves nothing by itself: that
+     * needs a Recount.)
+     */
+    public function tagged(DiscussionWasTagged $event): void
+    {
+        $this->safely(fn () => $this->tally->discussion($event->discussion->id));
+    }
+
+    /** fof/merge-discussions: moves posts into another discussion without post events. */
+    public function merged(DiscussionWasMerged $event): void
+    {
+        $this->safely(fn () => $this->tally->merged(
+            $event->discussion->id,
+            $event->mergedDiscussions->pluck('id')->map(fn ($id) => (int) $id)->all(),
+            $event->posts->pluck('id')->map(fn ($id) => (int) $id)->all(),
+        ));
     }
 
     /** @param list<string> $metrics */

@@ -25,10 +25,15 @@ use ErnestDefoe\CommunityGoals\Notification\GoalReachedBlueprint;
 use ErnestDefoe\CommunityGoals\Present;
 use ErnestDefoe\CommunityGoals\Settings;
 use Flarum\Api\Context;
+use Flarum\Approval\Event\PostWasApproved;
 use Flarum\Api\Resource\ForumResource;
 use Flarum\Api\Schema;
 use Flarum\Extend;
 use Flarum\Gdpr\Extend\UserData;
+use Flarum\Likes\Event\PostWasLiked;
+use Flarum\Likes\Event\PostWasUnliked;
+use Flarum\Tags\Event\DiscussionWasTagged;
+use FoF\MergeDiscussions\Events\DiscussionWasMerged;
 use Illuminate\Console\Scheduling\Event as ScheduledEvent;
 
 return [
@@ -59,6 +64,23 @@ return [
 
     (new Extend\Event())
         ->subscribe(CountActivity::class),
+
+    // What optional extensions change, listened to only while each is on.
+    (new Extend\Conditional())
+        ->whenExtensionEnabled('flarum-likes', fn () => [
+            (new Extend\Event())
+                ->listen(PostWasLiked::class, CountActivity::class.'@liked')
+                ->listen(PostWasUnliked::class, CountActivity::class.'@liked'),
+        ])
+        ->whenExtensionEnabled('flarum-approval', fn () => [
+            (new Extend\Event())->listen(PostWasApproved::class, CountActivity::class.'@approved'),
+        ])
+        ->whenExtensionEnabled('flarum-tags', fn () => [
+            (new Extend\Event())->listen(DiscussionWasTagged::class, CountActivity::class.'@tagged'),
+        ])
+        ->whenExtensionEnabled('fof-merge-discussions', fn () => [
+            (new Extend\Event())->listen(DiscussionWasMerged::class, CountActivity::class.'@merged'),
+        ]),
 
     (new Extend\Console())
         ->command(TickCommand::class)
