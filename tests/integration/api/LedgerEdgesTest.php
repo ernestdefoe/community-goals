@@ -107,6 +107,7 @@ class LedgerEdgesTest extends TestCase
     #[Test]
     public function a_members_export_lists_their_part_and_erasure_takes_it_out(): void
     {
+        $this->assertTrue($this->app()->getContainer()->make(Dispatcher::class)->hasListeners(Erasing::class), 'the Erasing listener is registered while flarum/gdpr is on');
         $id = $this->goal();
         $this->reply(3);
         $this->reply(3);
