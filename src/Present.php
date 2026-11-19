@@ -3,7 +3,6 @@
 namespace ErnestDefoe\CommunityGoals;
 
 use Carbon\Carbon;
-use Flarum\Extension\ExtensionManager;
 use Flarum\Http\SlugManager;
 use Flarum\Tags\Tag;
 use Flarum\User\User;
@@ -18,7 +17,7 @@ class Present
 {
     public function __construct(
         private readonly ConnectionInterface $db,
-        private readonly ExtensionManager $extensions,
+        private readonly Integrations $integrations,
         private readonly SlugManager $slugs,
     ) {
     }
@@ -69,7 +68,7 @@ class Present
      */
     public function tags(array $ids): array
     {
-        if (! $ids || ! $this->extensions->isEnabled('flarum-tags')) {
+        if (! $ids || ! $this->integrations->tags()) {
             return [];
         }
 

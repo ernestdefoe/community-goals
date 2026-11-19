@@ -4,7 +4,6 @@ namespace ErnestDefoe\CommunityGoals;
 
 use Carbon\Carbon;
 use Flarum\Discussion\Discussion;
-use Flarum\Extension\ExtensionManager;
 use Flarum\Post\Post;
 use Flarum\User\User;
 use Illuminate\Database\ConnectionInterface;
@@ -35,7 +34,7 @@ class Counting
 
     public function __construct(
         private readonly ConnectionInterface $db,
-        private readonly ExtensionManager $extensions,
+        private readonly Integrations $integrations,
     ) {
     }
 
@@ -79,53 +78,15 @@ class Counting
     public function query(Goal $goal, ?string $scope = null, ?int $id = null): ?Builder
     {
         $window = [$goal->starts_at, $goal->ends_at];
+        $query = match ($goal->metric) {
+            Goal::REPLIES, Goal::TAG_POSTS => $this->postsIn($goal, $window),
+            Goal::LIKES => $this->likesIn($window),
+            Goal::DISCUSSIONS => $this->discussionsIn($window),
+            Goal::MEMBERS => $this->membersIn($window),
+            default => null,
+        };
 
-        switch ($goal->metric) {
-            case Goal::REPLIES:
-            case Goal::TAG_POSTS:
-                $query = $this->posts()->whereBetween('posts.created_at', $window);
-                if ($goal->metric === Goal::REPLIES) {
-                    $query->where('posts.number', '>', 1);
-                } else {
-                    if (! $goal->tag_id || ! $this->extensions->isEnabled('flarum-tags')) {
-                        return null;
-                    }
-                    $query->whereIn('posts.discussion_id', fn (Builder $q) => $q->select('discussion_id')->from('discussion_tag')->where('tag_id', $goal->tag_id));
-                }
-                $query->select(['posts.id as subject_id', 'posts.user_id as user_id', 'posts.discussion_id as discussion_id']);
-                break;
-
-            case Goal::LIKES:
-                if (! $this->extensions->isEnabled('flarum-likes')) {
-                    return null;
-                }
-                $query = $this->posts()
-                    ->join('post_likes', 'post_likes.post_id', '=', 'posts.id')
-                    ->whereBetween('post_likes.created_at', $window)
-                    ->whereColumn('post_likes.user_id', '!=', 'posts.user_id')
-                    ->select(['posts.id as subject_id', 'post_likes.user_id as user_id', 'posts.discussion_id as discussion_id']);
-                break;
-
-            case Goal::DISCUSSIONS:
-                $query = Discussion::query()->whereVisibleTo(self::reader())->toBase()
-                    ->whereNull('discussions.hidden_at')
-                    ->whereNotNull('discussions.user_id')
-                    ->whereBetween('discussions.created_at', $window)
-                    ->select(['discussions.id as subject_id', 'discussions.user_id as user_id', 'discussions.id as discussion_id']);
-                break;
-
-            case Goal::MEMBERS:
-                $query = $this->db->table('users')
-                    ->where('users.is_email_confirmed', true)
-                    ->whereBetween('users.joined_at', $window)
-                    ->select(['users.id as subject_id', 'users.id as user_id', new Expression('NULL as discussion_id')]);
-                break;
-
-            default:
-                return null;
-        }
-
-        if ($scope !== null) {
+        if ($query && $scope !== null) {
             $column = match ([$goal->metric, $scope]) {
                 [Goal::DISCUSSIONS, self::SCOPE_DISCUSSION] => 'discussions.id',
                 [Goal::MEMBERS, self::SCOPE_USER] => 'users.id',
@@ -135,6 +96,55 @@ class Counting
         }
 
         return $query;
+    }
+
+    /** @param array{0: mixed, 1: mixed} $window */
+    private function postsIn(Goal $goal, array $window): ?Builder
+    {
+        $query = $this->posts()->whereBetween('posts.created_at', $window);
+        if ($goal->metric === Goal::REPLIES) {
+            $query->where('posts.number', '>', 1);
+        } else {
+            if (! $goal->tag_id || ! $this->integrations->tags()) {
+                return null;
+            }
+            $query->whereIn('posts.discussion_id', fn (Builder $q) => $q->select('discussion_id')->from('discussion_tag')->where('tag_id', $goal->tag_id));
+        }
+
+        return $query->select(['posts.id as subject_id', 'posts.user_id as user_id', 'posts.discussion_id as discussion_id']);
+    }
+
+    /** @param array{0: mixed, 1: mixed} $window */
+    private function likesIn(array $window): ?Builder
+    {
+        if (! $this->integrations->likes()) {
+            return null;
+        }
+
+        return $this->posts()
+            ->join('post_likes', 'post_likes.post_id', '=', 'posts.id')
+            ->whereBetween('post_likes.created_at', $window)
+            ->whereColumn('post_likes.user_id', '!=', 'posts.user_id')
+            ->select(['posts.id as subject_id', 'post_likes.user_id as user_id', 'posts.discussion_id as discussion_id']);
+    }
+
+    /** @param array{0: mixed, 1: mixed} $window */
+    private function discussionsIn(array $window): Builder
+    {
+        return Discussion::query()->whereVisibleTo(self::reader())->toBase()
+            ->whereNull('discussions.hidden_at')
+            ->whereNotNull('discussions.user_id')
+            ->whereBetween('discussions.created_at', $window)
+            ->select(['discussions.id as subject_id', 'discussions.user_id as user_id', 'discussions.id as discussion_id']);
+    }
+
+    /** @param array{0: mixed, 1: mixed} $window */
+    private function membersIn(array $window): Builder
+    {
+        return $this->db->table('users')
+            ->where('users.is_email_confirmed', true)
+            ->whereBetween('users.joined_at', $window)
+            ->select(['users.id as subject_id', 'users.id as user_id', new Expression('NULL as discussion_id')]);
     }
 
     /** Metrics whose facts come from the same rows: replies and tag posts are both posts. */
@@ -161,7 +171,7 @@ class Counting
         switch ($family) {
             case 'posts':
             case Goal::LIKES:
-                if ($family === Goal::LIKES && ! $this->extensions->isEnabled('flarum-likes')) {
+                if ($family === Goal::LIKES && ! $this->integrations->likes()) {
                     return [];
                 }
                 $query = $this->posts()->where($scope === self::SCOPE_DISCUSSION ? 'posts.discussion_id' : 'posts.id', $id);
@@ -201,7 +211,7 @@ class Counting
     public function tagsOf(array $rows): array
     {
         $ids = array_values(array_unique(array_filter(array_map(fn (object $row): int => (int) ($row->discussion_id ?? 0), $rows))));
-        if (! $ids || ! $this->extensions->isEnabled('flarum-tags')) {
+        if (! $ids || ! $this->integrations->tags()) {
             return [];
         }
 

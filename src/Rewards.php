@@ -7,7 +7,6 @@ use ErnestDefoe\CommunityGoals\Reward\Announcement;
 use ErnestDefoe\CommunityGoals\Reward\BadgeAward;
 use ErnestDefoe\CommunityGoals\Reward\FestoonDay;
 use ErnestDefoe\CommunityGoals\Reward\WardrobeTheme;
-use Flarum\Extension\ExtensionManager;
 use Illuminate\Contracts\Container\Container;
 use Psr\Log\LoggerInterface;
 
@@ -37,7 +36,7 @@ class Rewards
     ];
 
     public function __construct(
-        private readonly ExtensionManager $extensions,
+        private readonly Integrations $integrations,
         private readonly Container $container,
         private readonly LoggerInterface $log,
     ) {
@@ -47,7 +46,7 @@ class Rewards
     public function kind(string $kind): ?Reward\Reward
     {
         [$extension, $class] = self::KINDS[$kind] ?? ['', null];
-        if (! $class || ($extension && ! $this->extensions->isEnabled($extension))) {
+        if (! $class || ($extension && ! $this->integrations->enabled($extension))) {
             return null;
         }
 

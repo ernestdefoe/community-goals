@@ -120,15 +120,13 @@ class Tally
      */
     public function forgetUser(int $userId): void
     {
+        // Runs in flarum/gdpr's queued erasure job, once per member: their entries are counted per goal here.
         $byGoal = $this->db->table('community_goal_entries')
             ->join('community_goals', 'community_goals.id', '=', 'community_goal_entries.goal_id')
             ->where('community_goal_entries.user_id', $userId)
             ->whereNull('community_goals.closed_at')
-            ->groupBy('community_goal_entries.goal_id')
-            // Qualified columns through select(), never raw: raw SQL skips the table prefix.
-            ->select('community_goal_entries.goal_id')
-            ->selectRaw('count(*) as n')
-            ->pluck('n', 'goal_id');
+            ->pluck('community_goal_entries.goal_id')
+            ->countBy();
 
         $this->db->table('community_goal_entries')->where('user_id', $userId)->delete();
 
@@ -252,30 +250,61 @@ class Tally
             ->get(['goal_id', 'subject_id', 'user_id']) as $row) {
             $have[(int) $row->goal_id][$row->subject_id.':'.$row->user_id] = $row;
         }
+        $want = $gone ? [] : $this->wanted($goals, $scope, $id);
+
+        $deltas = $this->insertMissing($goals, $open, $scope, $id, $have, $want);
+        $deltas = $this->removeStale($goals, $have, $want, $deltas);
+
+        $deltas = array_filter(array_map(fn ($users) => array_filter($users), $deltas));
+        if ($deltas) {
+            $this->adjust($deltas);
+        }
+    }
+
+    /**
+     * What the ledger should hold at this scope: one facts query per family,
+     * sorted to each goal in PHP by the same rules Recount runs as SQL.
+     *
+     * @param list<Goal> $goals
+     * @return array<int, array<string, object>> goal id => "subject:user" => fact
+     */
+    private function wanted(array $goals, string $scope, int $id): array
+    {
+        $byFamily = [];
+        foreach ($goals as $goal) {
+            $byFamily[Counting::family($goal->metric)][] = $goal;
+        }
 
         $want = [];
-        if (! $gone) {
-            $byFamily = [];
-            foreach ($goals as $goal) {
-                $byFamily[Counting::family($goal->metric)][] = $goal;
+        foreach ($byFamily as $family => $members) {
+            $rows = $this->counting->facts($family, $scope, $id);
+            if (! $rows) {
+                continue;
             }
-            foreach ($byFamily as $family => $members) {
-                $rows = $this->counting->facts($family, $scope, $id);
-                if (! $rows) {
-                    continue;
-                }
-                $tags = $family === 'posts' && array_filter($members, fn (Goal $g) => $g->metric === Goal::TAG_POSTS) ? $this->counting->tagsOf($rows) : [];
-                foreach ($members as $goal) {
-                    foreach ($rows as $row) {
-                        if ($this->counting->accepts($goal, $row, $tags)) {
-                            $want[$goal->id][$row->subject_id.':'.$row->user_id] = $row;
-                        }
+            $tags = $family === 'posts' && array_filter($members, fn (Goal $g) => $g->metric === Goal::TAG_POSTS) ? $this->counting->tagsOf($rows) : [];
+            foreach ($members as $goal) {
+                foreach ($rows as $row) {
+                    if ($this->counting->accepts($goal, $row, $tags)) {
+                        $want[$goal->id][$row->subject_id.':'.$row->user_id] = $row;
                     }
                 }
             }
         }
 
-        $deltas = [];
+        return $want;
+    }
+
+    /**
+     * Write the entries the ledger lacks; returns what each member gained.
+     *
+     * @param list<Goal> $goals
+     * @param list<int> $open
+     * @param array<int, array<string, object>> $have
+     * @param array<int, array<string, object>> $want
+     * @return array<int, array<int, int>>
+     */
+    private function insertMissing(array $goals, array $open, string $scope, int $id, array $have, array $want): array
+    {
         $add = [];
         foreach ($goals as $goal) {
             foreach (array_diff_key($want[$goal->id] ?? [], $have[$goal->id] ?? []) as $row) {
@@ -287,28 +316,49 @@ class Tally
                 ];
             }
         }
-        if ($add) {
-            $inserted = $this->db->table('community_goal_entries')->insertOrIgnore($add);
-            if ($inserted === count($add)) {
-                foreach ($add as $row) {
-                    $deltas[$row['goal_id']][$row['user_id']] = ($deltas[$row['goal_id']][$row['user_id']] ?? 0) + 1;
-                }
-            } else {
-                // Some rows were already there (only possible if a writer skipped the lock): read what this run really added.
-                foreach ($add as $row) {
-                    $deltas[$row['goal_id']][$row['user_id']] ??= 0;
-                }
-                $after = $this->db->table('community_goal_entries')->whereIn('goal_id', $open)->where(Counting::ledgerColumn($scope), $id)
-                    ->selectRaw('goal_id, user_id, count(*) as n')->groupBy('goal_id', 'user_id')->get();
-                foreach ($after as $row) {
-                    $before = count(array_filter($have[(int) $row->goal_id] ?? [], fn ($h) => (int) $h->user_id === (int) $row->user_id));
-                    if (isset($deltas[(int) $row->goal_id][(int) $row->user_id])) {
-                        $deltas[(int) $row->goal_id][(int) $row->user_id] = (int) $row->n - $before;
-                    }
-                }
+        if (! $add) {
+            return [];
+        }
+
+        $deltas = [];
+        $inserted = $this->db->table('community_goal_entries')->insertOrIgnore($add);
+        if ($inserted === count($add)) {
+            foreach ($add as $row) {
+                $deltas[$row['goal_id']][$row['user_id']] = ($deltas[$row['goal_id']][$row['user_id']] ?? 0) + 1;
+            }
+
+            return $deltas;
+        }
+
+        // Some rows were already there (only possible if a writer skipped the lock): read what this run really added.
+        foreach ($add as $row) {
+            $deltas[$row['goal_id']][$row['user_id']] ??= 0;
+        }
+        $after = $this->db->table('community_goal_entries')->whereIn('goal_id', $open)->where(Counting::ledgerColumn($scope), $id)
+            ->get(['goal_id', 'user_id'])
+            ->countBy(fn ($row) => $row->goal_id.':'.$row->user_id);
+        foreach ($after as $key => $n) {
+            [$goalId, $userId] = array_map('intval', explode(':', (string) $key));
+            $before = count(array_filter($have[$goalId] ?? [], fn ($h) => (int) $h->user_id === $userId));
+            if (isset($deltas[$goalId][$userId])) {
+                $deltas[$goalId][$userId] = $n - $before;
             }
         }
 
+        return $deltas;
+    }
+
+    /**
+     * Delete the entries that no longer count; returns $deltas with what each member lost.
+     *
+     * @param list<Goal> $goals
+     * @param array<int, array<string, object>> $have
+     * @param array<int, array<string, object>> $want
+     * @param array<int, array<int, int>> $deltas
+     * @return array<int, array<int, int>>
+     */
+    private function removeStale(array $goals, array $have, array $want, array $deltas): array
+    {
         foreach ($goals as $goal) {
             $remove = [];
             foreach (array_diff_key($have[$goal->id] ?? [], $want[$goal->id] ?? []) as $row) {
@@ -326,10 +376,7 @@ class Tally
             }
         }
 
-        $deltas = array_filter(array_map(fn ($users) => array_filter($users), $deltas));
-        if ($deltas) {
-            $this->adjust($deltas);
-        }
+        return $deltas;
     }
 
     /**
@@ -346,6 +393,42 @@ class Tally
             return;
         }
 
+        [$joined, $left] = $this->moveContributors($deltas);
+
+        $goalsTable = fn () => $this->db->table('community_goals');
+        foreach ($this->groupBy($joined) as $n => $ids) {
+            $goalsTable()->whereIn('id', $ids)->increment('contributors_count', $n);
+        }
+        foreach ($this->groupBy($left) as $n => $ids) {
+            $goalsTable()->whereIn('id', $ids)->where('contributors_count', '>=', $n)->decrement('contributors_count', $n);
+        }
+
+        $totals = [];
+        foreach ($goalIds as $goalId) {
+            $totals[$goalId] = array_sum($deltas[$goalId] ?? []) + ($extra[$goalId] ?? 0);
+        }
+        foreach ($this->groupBy(array_filter($totals)) as $total => $ids) {
+            if ($total > 0) {
+                $goalsTable()->whereIn('id', $ids)->increment('progress', $total);
+            } else {
+                // Floored at zero (an unsigned column): those short of it first, then the rest.
+                $goalsTable()->whereIn('id', $ids)->where('progress', '<', -$total)->update(['progress' => 0]);
+                $goalsTable()->whereIn('id', $ids)->where('progress', '>=', -$total)->decrement('progress', -$total);
+            }
+        }
+
+        $this->check($goalIds);
+        $this->board->forget();
+    }
+
+    /**
+     * Each member's count on each goal, one query per kind of change.
+     *
+     * @param array<int, array<int, int>> $deltas
+     * @return array{0: array<int, int>, 1: array<int, int>} goal id => members who joined, and who left
+     */
+    private function moveContributors(array $deltas): array
+    {
         $table = fn () => $this->db->table('community_goal_contributors');
         $userIds = array_values(array_unique(array_merge(...array_map('array_keys', array_values($deltas ?: [[]])))));
 
@@ -386,30 +469,7 @@ class Tally
             $table()->where('user_id', $userId)->whereIn('goal_id', $goals)->increment('count', $delta);
         }
 
-        $goalsTable = fn () => $this->db->table('community_goals');
-        foreach ($this->groupBy($joined) as $n => $ids) {
-            $goalsTable()->whereIn('id', $ids)->increment('contributors_count', $n);
-        }
-        foreach ($this->groupBy($left) as $n => $ids) {
-            $goalsTable()->whereIn('id', $ids)->where('contributors_count', '>=', $n)->decrement('contributors_count', $n);
-        }
-
-        $totals = [];
-        foreach ($goalIds as $goalId) {
-            $totals[$goalId] = array_sum($deltas[$goalId] ?? []) + ($extra[$goalId] ?? 0);
-        }
-        foreach ($this->groupBy(array_filter($totals)) as $total => $ids) {
-            if ($total > 0) {
-                $goalsTable()->whereIn('id', $ids)->increment('progress', $total);
-            } else {
-                // Floored at zero (an unsigned column): those short of it first, then the rest.
-                $goalsTable()->whereIn('id', $ids)->where('progress', '<', -$total)->update(['progress' => 0]);
-                $goalsTable()->whereIn('id', $ids)->where('progress', '>=', -$total)->decrement('progress', -$total);
-            }
-        }
-
-        $this->check($goalIds);
-        $this->board->forget();
+        return [$joined, $left];
     }
 
     /**

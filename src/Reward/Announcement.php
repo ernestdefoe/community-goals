@@ -2,12 +2,12 @@
 
 namespace ErnestDefoe\CommunityGoals\Reward;
 
+use ErnestDefoe\CommunityGoals\Integrations;
 use ErnestDefoe\CommunityGoals\Goal;
 use ErnestDefoe\CommunityGoals\Present;
 use Flarum\Api\JsonApi;
 use Flarum\Api\Resource\DiscussionResource;
 use Flarum\Discussion\Discussion;
-use Flarum\Extension\ExtensionManager;
 use Flarum\Group\Group;
 use Flarum\Http\UrlGenerator;
 use Flarum\Tags\Tag;
@@ -28,7 +28,7 @@ class Announcement implements Reward
 {
     public function __construct(
         private readonly JsonApi $api,
-        private readonly ExtensionManager $extensions,
+        private readonly Integrations $integrations,
         private readonly TranslatorInterface $translator,
         private readonly UrlGenerator $url,
         private readonly Present $present,
@@ -37,7 +37,7 @@ class Announcement implements Reward
 
     public function options(): mixed
     {
-        if (! $this->extensions->isEnabled('flarum-tags')) {
+        if (! $this->integrations->tags()) {
             return ['tags' => null];
         }
 
@@ -49,7 +49,7 @@ class Announcement implements Reward
     public function clean(array $config): ?array
     {
         $tag = (int) ($config['tag'] ?? 0);
-        if ($this->extensions->isEnabled('flarum-tags') && ! Tag::query()->whereKey($tag)->exists()) {
+        if ($this->integrations->tags() && ! Tag::query()->whereKey($tag)->exists()) {
             return null;
         }
 
@@ -96,7 +96,7 @@ class Announcement implements Reward
             'title' => mb_substr(strtr($title, $fill), 0, 80),
             'content' => strtr($body, $fill),
         ]];
-        if ($config['tag'] && $this->extensions->isEnabled('flarum-tags')) {
+        if ($config['tag'] && $this->integrations->tags()) {
             $data['relationships']['tags']['data'] = [['type' => 'tags', 'id' => (string) $config['tag']]];
         }
 

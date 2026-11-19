@@ -39,6 +39,7 @@ class Board
                 ->where(fn ($q) => $q
                     ->where(fn ($q) => $q->whereNull('closed_at')->where('ends_at', '>', $now))
                     ->orWhere('hit_at', '>=', $now->copy()->subDays(2)))
+                // Running goals before reached ones: a plain CASE sorts the same on MySQL, PostgreSQL and SQLite.
                 ->orderByRaw('CASE WHEN hit_at IS NULL THEN 0 ELSE 1 END')
                 ->orderBy('ends_at')
                 ->limit(self::CACHED)

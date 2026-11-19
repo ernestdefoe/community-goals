@@ -72,6 +72,16 @@
         "flarum/tags": "^2.0",
         "flarum/testing": "^2.0"
     },
+    "suggest": {
+        "flarum/gdpr": "Members' contributions in their data export, and taken out on erasure",
+        "flarum/likes": "Goals that count likes",
+        "flarum/tags": "Goals that count posts in one tag",
+        "flarum/approval": "Posts count once they are approved",
+        "fof/badges": "A badge as a goal's reward",
+        "fof/merge-discussions": "Merged discussions keep their counts right",
+        "ernestdefoe/wardrobe": "A theme for the forum as a goal's reward",
+        "ernestdefoe/festoon": "A Festoon look as a goal's reward"
+    },
     "scripts": {
         "test": [
             "@test:unit",

@@ -52,6 +52,7 @@ class Recount
                     ->where('goal_id', $goal->id)
                     ->groupBy('goal_id', 'user_id')
                     ->select(['goal_id', 'user_id'])
+                    // INSERT … SELECT needs the aggregate as a column: the builder's count() runs its own query.
                     ->selectRaw('count(*)')
             );
 

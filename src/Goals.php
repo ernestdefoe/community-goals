@@ -4,7 +4,6 @@ namespace ErnestDefoe\CommunityGoals;
 
 use Carbon\Carbon;
 use ErnestDefoe\CommunityGoals\Job\RecountGoal;
-use Flarum\Extension\ExtensionManager;
 use Flarum\Foundation\ValidationException;
 use Flarum\Tags\Tag;
 use Flarum\User\User;
@@ -31,7 +30,7 @@ class Goals
         private readonly Tally $tally,
         private readonly Queue $queue,
         private readonly Counting $counting,
-        private readonly ExtensionManager $extensions,
+        private readonly Integrations $integrations,
         private readonly TranslatorInterface $translator,
     ) {
     }
@@ -43,91 +42,10 @@ class Goals
         $goal ??= new Goal();
         $frozen = ! $creating && ($goal->hit_at || $goal->closed_at);
 
-        // Plain text, escaped wherever it is shown: "<3 replies" stays as typed.
-        $text = fn (string $key, int $max) => mb_substr(trim((string) ($input[$key] ?? '')), 0, $max);
-
-        if ($creating || array_key_exists('title', $input)) {
-            $goal->title = $text('title', 100);
-            if ($goal->title === '') {
-                $this->fail('title', 'title_required');
-            }
-        }
-        if ($creating || array_key_exists('description', $input)) {
-            $goal->description = $text('description', 1000) ?: null;
-        }
-        if ($creating || array_key_exists('unit', $input)) {
-            $goal->unit = $text('unit', 40) ?: null;
-        }
-        if ($creating || array_key_exists('reward', $input)) {
-            $goal->reward = $text('reward', 200) ?: null;
-        }
-
+        $this->fillWording($goal, $input, $creating);
         if (! $frozen) {
-            if ($creating || array_key_exists('metric', $input)) {
-                $metric = (string) ($input['metric'] ?? '');
-                if (! in_array($metric, Goal::METRICS, true)
-                    || ($metric === Goal::LIKES && ! $this->extensions->isEnabled('flarum-likes'))
-                    || ($metric === Goal::TAG_POSTS && ! $this->extensions->isEnabled('flarum-tags'))) {
-                    $this->fail('metric', 'metric_invalid');
-                }
-                $goal->metric = $metric;
-            }
-
-            if ($goal->metric === Goal::TAG_POSTS) {
-                $tagId = (int) ($input['tagId'] ?? $goal->tag_id ?? 0);
-                if (! Tag::query()->whereKey($tagId)->exists()) {
-                    $this->fail('tagId', 'tag_required');
-                }
-                $goal->tag_id = $tagId;
-            } else {
-                $goal->tag_id = null;
-            }
-
-            if ($creating || array_key_exists('target', $input)) {
-                $target = (int) ($input['target'] ?? 0);
-                if ($target < 1 || $target > self::MAX_TARGET) {
-                    $this->fail('target', 'target_invalid');
-                }
-                $goal->target = $target;
-            }
-
-            if ($creating || array_key_exists('startsAt', $input) || array_key_exists('endsAt', $input)) {
-                $starts = $this->date($input['startsAt'] ?? null) ?? ($creating ? Carbon::now() : $goal->starts_at);
-                $ends = $this->date($input['endsAt'] ?? null) ?? ($creating ? null : $goal->ends_at);
-                if (! $ends || $ends->lte($starts) || $ends->lte(Carbon::now())) {
-                    $this->fail('endsAt', 'ends_invalid');
-                }
-                if ($starts->diffInDays($ends) > self::MAX_DAYS) {
-                    $this->fail('endsAt', 'too_long');
-                }
-                $goal->starts_at = $starts;
-                $goal->ends_at = $ends;
-            }
-
-            // Rewards change site settings and hand out badges: admins only, even
-            // where moderators may set goals (their rewards input is ignored).
-            if (($creating || array_key_exists('rewards', $input)) && $actor->isAdmin()) {
-                $goal->rewards = $this->rewards->clean($input['rewards'] ?? []) ?: null;
-            }
-
-            if ($creating) {
-                $goal->progress = 0;
-                $goal->milestone = 0;
-                $goal->contributors_count = 0;
-                $goal->user_id = $actor->id;
-                if ($goal->metric === Goal::CUSTOM) {
-                    $goal->progress = max(0, min(self::MAX_TARGET, (int) ($input['progress'] ?? 0)));
-                }
-            }
-        }
-
-        // 🚨 A target already met would complete the goal the moment it is saved,
-        // for good (notifications, rewards). Only on purpose: `complete`.
-        if (! $frozen && ($creating || $goal->isDirty(['target', 'metric', 'tag_id', 'starts_at', 'ends_at'])) && empty($input['complete'])) {
-            $count = $goal->isCounted() ? ($this->counting->query($goal)?->count() ?? 0) : $goal->progress;
-            if ($count >= $goal->target) {
-                $this->fail('complete', 'target_reached', ['count' => $count]);
-            }
+            $this->fillCounting($goal, $input, $creating, $actor);
+            $this->refuseIfAlreadyMet($goal, $input, $creating);
         }
 
         $recount = $goal->isCounted() && ($creating || $goal->isDirty(['metric', 'tag_id', 'starts_at', 'ends_at']));
@@ -147,6 +65,126 @@ class Goals
         }
 
         return $goal->refresh();
+    }
+
+    /**
+     * Title, description, unit and reward text: the only things a reached or
+     * closed goal still lets you change.
+     *
+     * @param array<string, mixed> $input
+     */
+    private function fillWording(Goal $goal, array $input, bool $creating): void
+    {
+        // Plain text, escaped wherever it is shown: "<3 replies" stays as typed.
+        $text = fn (string $key, int $max) => mb_substr(trim((string) ($input[$key] ?? '')), 0, $max);
+        $sent = fn (string $key) => $creating || array_key_exists($key, $input);
+
+        if ($sent('title')) {
+            $goal->title = $text('title', 100);
+            if ($goal->title === '') {
+                $this->fail('title', 'title_required');
+            }
+        }
+        if ($sent('description')) {
+            $goal->description = $text('description', 1000) ?: null;
+        }
+        if ($sent('unit')) {
+            $goal->unit = $text('unit', 40) ?: null;
+        }
+        if ($sent('reward')) {
+            $goal->reward = $text('reward', 200) ?: null;
+        }
+    }
+
+    /**
+     * What a running goal counts, how far and when, its rewards, and a new
+     * goal's starting numbers.
+     *
+     * @param array<string, mixed> $input
+     */
+    private function fillCounting(Goal $goal, array $input, bool $creating, User $actor): void
+    {
+        if ($creating || array_key_exists('metric', $input)) {
+            $goal->metric = $this->metric((string) ($input['metric'] ?? ''));
+        }
+
+        if ($goal->metric === Goal::TAG_POSTS) {
+            $tagId = (int) ($input['tagId'] ?? $goal->tag_id ?? 0);
+            if (! Tag::query()->whereKey($tagId)->exists()) {
+                $this->fail('tagId', 'tag_required');
+            }
+            $goal->tag_id = $tagId;
+        } else {
+            $goal->tag_id = null;
+        }
+
+        if ($creating || array_key_exists('target', $input)) {
+            $target = (int) ($input['target'] ?? 0);
+            if ($target < 1 || $target > self::MAX_TARGET) {
+                $this->fail('target', 'target_invalid');
+            }
+            $goal->target = $target;
+        }
+
+        if ($creating || array_key_exists('startsAt', $input) || array_key_exists('endsAt', $input)) {
+            $this->fillWindow($goal, $input, $creating);
+        }
+
+        // Rewards change site settings and hand out badges: admins only, even
+        // where moderators may set goals (their rewards input is ignored).
+        if (($creating || array_key_exists('rewards', $input)) && $actor->isAdmin()) {
+            $goal->rewards = $this->rewards->clean($input['rewards'] ?? []) ?: null;
+        }
+
+        if ($creating) {
+            $goal->progress = $goal->metric === Goal::CUSTOM ? max(0, min(self::MAX_TARGET, (int) ($input['progress'] ?? 0))) : 0;
+            $goal->milestone = 0;
+            $goal->contributors_count = 0;
+            $goal->user_id = $actor->id;
+        }
+    }
+
+    private function metric(string $metric): string
+    {
+        if (! in_array($metric, Goal::METRICS, true)
+            || ($metric === Goal::LIKES && ! $this->integrations->likes())
+            || ($metric === Goal::TAG_POSTS && ! $this->integrations->tags())) {
+            $this->fail('metric', 'metric_invalid');
+        }
+
+        return $metric;
+    }
+
+    /** @param array<string, mixed> $input */
+    private function fillWindow(Goal $goal, array $input, bool $creating): void
+    {
+        $starts = $this->date($input['startsAt'] ?? null) ?? ($creating ? Carbon::now() : $goal->starts_at);
+        $ends = $this->date($input['endsAt'] ?? null) ?? ($creating ? null : $goal->ends_at);
+        if (! $ends || $ends->lte($starts) || $ends->lte(Carbon::now())) {
+            $this->fail('endsAt', 'ends_invalid');
+        }
+        if ($starts->diffInDays($ends) > self::MAX_DAYS) {
+            $this->fail('endsAt', 'too_long');
+        }
+        $goal->starts_at = $starts;
+        $goal->ends_at = $ends;
+    }
+
+    /**
+     * 🚨 A target already met would complete the goal the moment it is saved,
+     * for good (notifications, rewards). Only on purpose: `complete`.
+     *
+     * @param array<string, mixed> $input
+     */
+    private function refuseIfAlreadyMet(Goal $goal, array $input, bool $creating): void
+    {
+        if (! empty($input['complete']) || ! ($creating || $goal->isDirty(['target', 'metric', 'tag_id', 'starts_at', 'ends_at']))) {
+            return;
+        }
+        $count = $goal->isCounted() ? ($this->counting->query($goal)?->count() ?? 0) : $goal->progress;
+        if ($count >= $goal->target) {
+            $this->fail('complete', 'target_reached', ['count' => $count]);
+        }
     }
 
     /** For a goal counted by hand (custom): add to it, or set it. */

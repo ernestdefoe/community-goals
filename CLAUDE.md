@@ -23,7 +23,9 @@
 - Re-tagging re-syncs every metric (a move into a staff-only tag stops counting). Changing a TAG's permissions moves nothing by itself: Recount.
 - Tag goals are 404 / left out for viewers who can't see the tag (`Present::visible`).
 - 🚨 Raw SQL skips the table prefix: qualified columns go through `select()`, never `selectRaw`. MySQL refuses LIMIT inside an IN subquery: pluck ids first. Migrations never name an index or key (Laravel doesn't prefix explicit names).
-- Optional extensions' events (likes, approval, tags, fof/merge-discussions) are listened to through `Extend\Conditional` in extend.php, never in `CountActivity::subscribe`.
+- Optional extensions' events (likes, approval, tags, fof/merge-discussions) are listened to through `Extend\Conditional` in extend.php, never in `CountActivity::subscribe`. Run-time questions (may a goal count likes or a tag's posts, may a reward use Wardrobe/Festoon/badges) go through `Integrations`, the one place that asks `ExtensionManager`.
+- Forum payload fields are an invokable class (`Api\ForumResourceFields`), never a closure in extend.php. `Gdpr\GoalsData` is built by flarum/gdpr with `new $type(...)` and fixed args, so it can't take constructor dependencies: its one `resolve(Tally)` is documented there.
+- Functions stay under 50 lines (Floxum flags longer ones): split by step, as `Goals::save`, `Tally::syncLocked`/`adjust` and the modal's field groups are.
 - Frontend: forum.js carries only the route (`Extend.Routes` in extend.ts, lazy page), nav link, banner/bar/celebrations and the notification; the page, top list and form are one lazy chunk (`goals.tsx`). Mithril has no function components; never mix keyed and unkeyed siblings (ItemList items have no keys).
 
 ## Testing

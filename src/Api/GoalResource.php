@@ -2,6 +2,7 @@
 
 namespace ErnestDefoe\CommunityGoals\Api;
 
+use ErnestDefoe\CommunityGoals\Integrations;
 use Carbon\Carbon;
 use ErnestDefoe\CommunityGoals\Goal;
 use ErnestDefoe\CommunityGoals\Goals;
@@ -11,7 +12,6 @@ use Flarum\Api\Context;
 use Flarum\Api\Endpoint;
 use Flarum\Api\Resource\AbstractDatabaseResource;
 use Flarum\Api\Schema;
-use Flarum\Extension\ExtensionManager;
 use Flarum\Tags\Tag;
 use Flarum\User\User;
 use Illuminate\Database\ConnectionInterface;
@@ -42,7 +42,7 @@ class GoalResource extends AbstractDatabaseResource
     public function __construct(
         private readonly Present $present,
         private readonly Goals $goals,
-        private readonly ExtensionManager $extensions,
+        private readonly Integrations $integrations,
         private readonly ConnectionInterface $db,
     ) {
         $this->extras = new \WeakMap();
@@ -69,7 +69,7 @@ class GoalResource extends AbstractDatabaseResource
             $query->where(function (Builder $q) use ($actor) {
                 $q->where('metric', '!=', Goal::TAG_POSTS);
                 // A tag goal whose tag is gone (or Tags is off) shows to nobody.
-                if ($this->extensions->isEnabled('flarum-tags')) {
+                if ($this->integrations->tags()) {
                     $q->orWhereIn('tag_id', Tag::query()->whereVisibleTo($actor)->select('tags.id'));
                 }
             });
@@ -167,7 +167,7 @@ class GoalResource extends AbstractDatabaseResource
                 ->get(fn (Goal $goal) => $this->extras[$goal]['helpers'] ?? []),
         ];
 
-        if ($this->extensions->isEnabled('flarum-tags')) {
+        if ($this->integrations->tags()) {
             $fields[] = Schema\Relationship\ToOne::make('tag')->type('tags')->includable();
         }
 
