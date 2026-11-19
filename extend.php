@@ -20,10 +20,12 @@ use ErnestDefoe\CommunityGoals\Console\TickCommand;
 use ErnestDefoe\CommunityGoals\Gdpr\GoalsData;
 use ErnestDefoe\CommunityGoals\Http\PageContent;
 use ErnestDefoe\CommunityGoals\Listener\CountActivity;
+use ErnestDefoe\CommunityGoals\Listener\ForgetErasedMember;
 use ErnestDefoe\CommunityGoals\Notification\GoalReachedBlueprint;
 use Flarum\Approval\Event\PostWasApproved;
 use Flarum\Api\Resource\ForumResource;
 use Flarum\Extend;
+use Flarum\Gdpr\Events\Erasing;
 use Flarum\Gdpr\Extend\UserData;
 use Flarum\Likes\Event\PostWasLiked;
 use Flarum\Likes\Event\PostWasUnliked;
@@ -43,14 +45,6 @@ return [
         ->js(__DIR__.'/js/dist/admin.js'),
 
     new Extend\Locales(__DIR__.'/locale'),
-
-    // Goals themselves are the JSON:API resource; these four have no resource shape. The GETs
-    // sit beside it, not under it: the resource's /community-goals/{id} would shadow them.
-    (new Extend\Routes('api'))
-        ->get('/community-goals-board', 'community-goals.board', Api\BoardController::class)
-        ->get('/community-goals-options', 'community-goals.options', Api\OptionsController::class)
-        ->post('/community-goals/{id:\d+}/recount', 'community-goals.recount', Api\RecountController::class)
-        ->post('/community-goals/{id:\d+}/progress', 'community-goals.progress', Api\ProgressController::class),
 
     new Extend\ApiResource(Api\GoalResource::class),
 
@@ -99,5 +93,6 @@ return [
     (new Extend\Conditional())
         ->whenExtensionEnabled('flarum-gdpr', fn () => [
             (new UserData())->addType(GoalsData::class),
+            (new Extend\Event())->listen(Erasing::class, ForgetErasedMember::class),
         ]),
 ];

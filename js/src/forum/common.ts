@@ -40,7 +40,7 @@ export interface Goal {
 
 export const t = (key: string, params: Record<string, any> = {}) => app.translator.trans(`ernestdefoe-community-goals.forum.${key}`, params);
 
-/** `path` follows /community-goals: "/3", "/3/recount", or "-board" and "-options", which sit beside the resource. */
+/** `path` follows /community-goals: "/3", "/3/recount", "/3/progress", "/board" or "/options" (the resource's custom endpoints answer in `meta`). */
 export function call<T>(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, body?: Record<string, any>, quiet = false): Promise<T> {
   return app.request<T>({
     method,

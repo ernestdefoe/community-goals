@@ -187,6 +187,30 @@ class Goals
         }
     }
 
+    /**
+     * What the goal form can offer on this forum: metrics, tags and the
+     * rewards whose extensions are on (rewards for admins only, as in save()).
+     *
+     * @return array{likes: bool, tags: ?list<array{id: int, title: string, child: bool}>, rewards: ?array<string, mixed>}
+     */
+    public function formOptions(User $actor): array
+    {
+        return [
+            'likes' => $this->integrations->likes(),
+            'tags' => $this->integrations->tags() ? Tag::query()->orderBy('position')->orderBy('name')->get(['id', 'name', 'parent_id'])
+                ->map(fn (Tag $tag) => ['id' => (int) $tag->id, 'title' => (string) $tag->name, 'child' => (bool) $tag->parent_id])->values()->all() : null,
+            'rewards' => $actor->isAdmin() ? $this->rewards->options() : null,
+        ];
+    }
+
+    /** The repair button: rebuild a running goal's count in the background. */
+    public function recount(Goal $goal): void
+    {
+        if ($goal->isCounted() && ! $goal->closed_at) {
+            $this->queue->push(new RecountGoal($goal->id));
+        }
+    }
+
     /** For a goal counted by hand (custom): add to it, or set it. */
     public function setProgress(Goal $goal, ?int $add, ?int $set): void
     {

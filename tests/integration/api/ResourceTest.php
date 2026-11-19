@@ -94,6 +94,40 @@ class ResourceTest extends TestCase
     }
 
     #[Test]
+    public function the_custom_endpoints_live_on_the_resource_and_keep_hidden_goals_hidden(): void
+    {
+        $public = $this->insertGoal([]);
+        $hidden = $this->insertGoal(['title' => 'Staff Room push', 'metric' => 'tag_posts', 'tag_id' => 2]);
+
+        // The banner: a JSON:API document whose meta holds the goals this viewer may see.
+        $response = $this->send($this->request('GET', '/api/community-goals/board'));
+        $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        $this->assertStringContainsString('application/vnd.api+json', $response->getHeaderLine('Content-Type'));
+        $board = json_decode((string) $response->getBody(), true)['meta'];
+        $this->assertSame([$public], array_column($board['goals'], 'id'));
+        $this->assertNotEmpty($board['now']);
+        $this->assertContains($hidden, array_column($this->api('GET', '/board', 4)[1]['goals'], 'id'));
+
+        // The form's options are for managers; the moderator here may not set goals.
+        $this->assertSame(403, $this->api('GET', '/options', 4)[0]);
+        [$status, $options] = $this->api('GET', '/options', 1);
+        $this->assertSame(200, $status);
+        $this->assertSame(['General', 'Staff Room'], array_column($options['tags'], 'title'));
+
+        // The old plain paths are gone.
+        $this->assertSame(404, $this->send($this->request('GET', '/api/community-goals-board'))->getStatusCode());
+        $this->assertSame(404, $this->send($this->request('GET', '/api/community-goals-options', ['authenticatedAs' => 1]))->getStatusCode());
+
+        // Recount and progress find their goal through scope() and need a manager.
+        $this->assertSame(403, $this->api('POST', "/$public/recount", 2)[0]);
+        $this->assertSame(202, $this->api('POST', "/$public/recount", 1)[0]);
+        $this->assertSame(404, $this->api('POST', '/999/recount', 1)[0]);
+        $hand = $this->insertGoal(['title' => 'Pages written', 'metric' => 'custom', 'progress' => 0]);
+        $this->assertSame(204, $this->api('POST', "/$hand/progress", 1, ['add' => 7])[0]);
+        $this->assertSame(7, (int) $this->database()->table('community_goals')->where('id', $hand)->value('progress'));
+    }
+
+    #[Test]
     public function helpers_come_as_an_include_and_only_those_the_viewer_may_see(): void
     {
         $goal = $this->insertGoal([]);

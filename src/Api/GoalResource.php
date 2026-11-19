@@ -2,10 +2,11 @@
 
 namespace ErnestDefoe\CommunityGoals\Api;
 
-use ErnestDefoe\CommunityGoals\Integrations;
 use Carbon\Carbon;
+use ErnestDefoe\CommunityGoals\Board;
 use ErnestDefoe\CommunityGoals\Goal;
 use ErnestDefoe\CommunityGoals\Goals;
+use ErnestDefoe\CommunityGoals\Integrations;
 use ErnestDefoe\CommunityGoals\Present;
 use ErnestDefoe\CommunityGoals\Settings;
 use Flarum\Api\Context;
@@ -16,7 +17,11 @@ use Flarum\Tags\Tag;
 use Flarum\User\User;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Arr;
+use Laminas\Diactoros\Response\EmptyResponse;
 use Tobyz\JsonApiServer\Context as BaseContext;
+
+use function Tobyz\JsonApiServer\json_api_response;
 
 /**
  * Goals, as the `community-goals` JSON:API type (also a notification's subject).
@@ -29,6 +34,11 @@ use Tobyz\JsonApiServer\Context as BaseContext;
  *   everything the form sends (attributes here only declare what may be sent).
  * - A goal counting a tag the viewer can't see doesn't exist for them;
  *   managers still reach it by id to edit it.
+ * - Custom endpoints: `GET /board` (the index banner again, from its cache;
+ *   meta only), `GET /options` (what the form may offer; managers), and for
+ *   managers `POST /{id}/recount` (queued) and `POST /{id}/progress` ({add} or
+ *   {set}, for a number kept by hand). They come before Show: the static
+ *   paths must be registered before `/{id}` or FastRoute treats them as shadowed.
  *
  * @extends AbstractDatabaseResource<Goal>
  */
@@ -42,6 +52,7 @@ class GoalResource extends AbstractDatabaseResource
     public function __construct(
         private readonly Present $present,
         private readonly Goals $goals,
+        private readonly Board $board,
         private readonly Integrations $integrations,
         private readonly ConnectionInterface $db,
     ) {
@@ -88,11 +99,73 @@ class GoalResource extends AbstractDatabaseResource
 
     public function endpoints(): array
     {
-        // A forum closed to guests stays closed: goal names, rewards and helpers included.
-        $view = function (Context $context) {
-            $context->getActor()->assertCan('viewForum');
-            $context->getActor()->assertCan(Settings::VIEW);
-        };
+        // Custom endpoints first: their static paths must be registered before Show's /{id}.
+        return [...$this->customEndpoints(), ...$this->crudEndpoints()];
+    }
+
+    /** A forum closed to guests stays closed: goal names, rewards and helpers included. */
+    private function view(Context $context): void
+    {
+        $context->getActor()->assertCan('viewForum');
+        $context->getActor()->assertCan(Settings::VIEW);
+    }
+
+    /** @return list<Endpoint\Endpoint> board, options, recount, progress */
+    private function customEndpoints(): array
+    {
+        $view = $this->view(...);
+
+        return [
+            Endpoint\Endpoint::make('board')
+                ->route('GET', '/board')
+                ->action(function (Context $context) use ($view) {
+                    $view($context);
+
+                    return ['meta' => ['goals' => $this->board->visibleTo($context->getActor()), 'now' => Present::now()]];
+                }),
+            Endpoint\Endpoint::make('options')
+                ->route('GET', '/options')
+                ->authenticated()
+                ->can(Settings::MANAGE)
+                ->action(function (Context $context) use ($view) {
+                    $view($context);
+
+                    return ['meta' => $this->goals->formOptions($context->getActor())];
+                }),
+            Endpoint\Endpoint::make('recount')
+                ->route('POST', '/{id}/recount')
+                ->authenticated()
+                ->can(Settings::MANAGE)
+                ->action(function (Context $context) use ($view) {
+                    $view($context);
+                    $this->goals->recount($context->model);
+
+                    return null;
+                })
+                ->response(fn () => json_api_response(['meta' => ['queued' => true]], 202)),
+            Endpoint\Endpoint::make('progress')
+                ->route('POST', '/{id}/progress')
+                ->authenticated()
+                ->can(Settings::MANAGE)
+                ->action(function (Context $context) use ($view) {
+                    $view($context);
+                    $body = (array) $context->body();
+                    $this->goals->setProgress(
+                        $context->model,
+                        isset($body['add']) ? (int) Arr::get($body, 'add') : null,
+                        isset($body['set']) ? (int) Arr::get($body, 'set') : null,
+                    );
+
+                    return null;
+                })
+                ->response(fn () => new EmptyResponse(204)),
+        ];
+    }
+
+    /** @return list<\Tobyz\JsonApiServer\Endpoint\Endpoint> */
+    private function crudEndpoints(): array
+    {
+        $view = $this->view(...);
 
         return [
             Endpoint\Index::make()

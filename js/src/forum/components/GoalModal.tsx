@@ -102,8 +102,8 @@ export default class GoalModal extends FormModal<Attrs> {
       this.preset('7');
     }
 
-    call<Options>('GET', '-options').then((options) => {
-      this.options = options;
+    call<{ meta: Options }>('GET', '/options').then(({ meta }) => {
+      this.options = meta;
       m.redraw();
     });
   }

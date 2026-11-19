@@ -3,7 +3,6 @@
 namespace ErnestDefoe\CommunityGoals\Api;
 
 use ErnestDefoe\CommunityGoals\Board;
-use ErnestDefoe\CommunityGoals\Present;
 use ErnestDefoe\CommunityGoals\Settings;
 use Flarum\Api\Context;
 use Flarum\Api\Schema;
@@ -16,7 +15,6 @@ use Flarum\Settings\SettingsRepositoryInterface;
 class ForumResourceFields
 {
     public function __construct(
-        private readonly Present $present,
         private readonly Board $board,
         private readonly SettingsRepositoryInterface $settings,
     ) {
@@ -27,7 +25,7 @@ class ForumResourceFields
         return [
             Schema\Arr::make('communityGoals')
                 ->visible(fn ($forum, Context $context) => Settings::canView($context->getActor()) && $this->settings->get(Settings::PLACEMENT) !== 'off')
-                ->get(fn ($forum, Context $context) => array_slice($this->present->visible($context->getActor(), $this->board->get()), 0, Board::LIMIT)),
+                ->get(fn ($forum, Context $context) => $this->board->visibleTo($context->getActor())),
             Schema\Boolean::make('communityGoalsCanView')
                 ->get(fn ($forum, Context $context) => Settings::canView($context->getActor())),
             Schema\Boolean::make('communityGoalsCanManage')

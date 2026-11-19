@@ -2,6 +2,7 @@
 
 namespace ErnestDefoe\CommunityGoals;
 
+use Flarum\User\User;
 use Carbon\Carbon;
 use Illuminate\Contracts\Cache\Repository;
 
@@ -29,23 +30,43 @@ class Board
     ) {
     }
 
+    /**
+     * The banner as this viewer sees it: the cached goals minus tag goals they
+     * can't read, at most LIMIT. No query on a cache hit.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function visibleTo(User $actor): array
+    {
+        return array_slice($this->present->visible($actor, $this->get()), 0, self::LIMIT);
+    }
+
     /** @return list<array<string, mixed>> Summaries, tag-restricted ones included (filtered per viewer by Present::visible). */
     public function get(): array
     {
         return (array) $this->cache->remember(self::KEY, 60, function () {
             $now = Carbon::now();
-            $goals = Goal::query()
+            // Running goals first, then reached ones (still open, or reached in the last two days and
+            // still celebrated): two capped queries on a cache miss, no ordering by a computed column.
+            $running = Goal::query()
                 ->where('starts_at', '<=', $now)
-                ->where(fn ($q) => $q
-                    ->where(fn ($q) => $q->whereNull('closed_at')->where('ends_at', '>', $now))
-                    ->orWhere('hit_at', '>=', $now->copy()->subDays(2)))
-                // Running goals before reached ones: a plain CASE sorts the same on MySQL, PostgreSQL and SQLite.
-                ->orderByRaw('CASE WHEN hit_at IS NULL THEN 0 ELSE 1 END')
+                ->whereNull('hit_at')
+                ->whereNull('closed_at')
+                ->where('ends_at', '>', $now)
                 ->orderBy('ends_at')
                 ->limit(self::CACHED)
                 ->get();
+            $reached = $running->count() < self::CACHED ? Goal::query()
+                ->where('starts_at', '<=', $now)
+                ->whereNotNull('hit_at')
+                ->where(fn ($q) => $q
+                    ->where(fn ($q) => $q->whereNull('closed_at')->where('ends_at', '>', $now))
+                    ->orWhere('hit_at', '>=', $now->copy()->subDays(2)))
+                ->orderBy('ends_at')
+                ->limit(self::CACHED - $running->count())
+                ->get() : collect();
 
-            return $this->present->summaries($goals);
+            return $this->present->summaries($running->concat($reached));
         });
     }
 

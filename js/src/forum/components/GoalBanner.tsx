@@ -31,8 +31,8 @@ export default class GoalBanner extends Component<Attrs> {
 
     if (Date.now() - fetchedAt > 60000) {
       fetchedAt = Date.now();
-      call<{ goals: Goal[]; now: string }>('GET', '-board', undefined, true)
-        .then((data) => {
+      call<{ meta: { goals: Goal[]; now: string } }>('GET', '/board', undefined, true)
+        .then(({ meta: data }) => {
           setSkew(data.now);
           app.forum.pushAttributes({ communityGoals: data.goals });
           m.redraw.sync();
