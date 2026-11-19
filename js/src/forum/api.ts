@@ -10,7 +10,7 @@ import { type Goal, call } from './common';
 export const PER_PAGE = 10;
 
 /** The tag is only a relationship while Tags is on; asking for it otherwise is a 400. */
-const include = () => (app.initializers.has('flarum-tags') ? 'helpers,tag' : 'helpers');
+const include = () => ('flarum-tags' in flarum.extensions ? 'helpers,tag' : 'helpers');
 
 /** Goals from the JSON:API in the shape the components use; their helpers and tags go into the store. */
 function fromDocument(doc: any): Goal[] {

@@ -17,8 +17,6 @@ import { type Goal, METRIC_ICONS, call, number, percent, setSkew, statusOf, t, t
 import { PER_PAGE, goalPage, oneGoal } from '../api';
 import { IndexSidebar, PageStructure, openGoalForm } from '../goals';
 
-declare const m: Mithril.Static;
-
 interface List {
   open: Goal[];
   past: Goal[];
@@ -89,7 +87,9 @@ export default class GoalsPage extends Page {
         data.more = next.more;
         this.page++;
       })
-      .catch(() => {})
+      .catch(() => {
+        /* call() already showed the error alert; the button stays for another try */
+      })
       .finally(() => {
         this.loadingMore = false;
         m.redraw();
@@ -106,21 +106,7 @@ export default class GoalsPage extends Page {
 
   body(): Mithril.Children {
     const data = this.data;
-    const header = (
-      <header className="CommunityGoalsPage-header">
-        <div className="CommunityGoalsPage-heading">
-          <h2 className="CommunityGoalsPage-title">
-            <Icon name="fas fa-flag-checkered" /> {t('page.title')}
-          </h2>
-          <p className="CommunityGoalsPage-intro">{t('page.intro')}</p>
-        </div>
-        {data?.canManage && (
-          <Button className="Button Button--primary" icon="fas fa-plus" onclick={() => openGoalForm({ onsave: () => this.load() })}>
-            {t('page.new')}
-          </Button>
-        )}
-      </header>
-    );
+    const header = this.header();
 
     if (!data) {
       return [header, this.error ? <p className="CommunityGoalsPage-empty">{t('page.error')}</p> : <LoadingIndicator />];
@@ -137,18 +123,8 @@ export default class GoalsPage extends Page {
           <p>{data.canManage ? t('page.none_manage') : t('page.none')}</p>
         </div>
       ),
-      running.length > 0 && (
-        <section className="CommunityGoalsPage-section">
-          <h3 className="CommunityGoalsPage-sectionTitle">{t('page.running')}</h3>
-          {running.map((goal) => this.panel(goal))}
-        </section>
-      ),
-      coming.length > 0 && (
-        <section className="CommunityGoalsPage-section">
-          <h3 className="CommunityGoalsPage-sectionTitle">{t('page.coming_up')}</h3>
-          {coming.map((goal) => this.panel(goal))}
-        </section>
-      ),
+      running.length > 0 && this.panels(t('page.running'), running),
+      coming.length > 0 && this.panels(t('page.coming_up'), coming),
       <section className="CommunityGoalsPage-section">
         <h3 className="CommunityGoalsPage-sectionTitle">{t('page.history')}</h3>
         {data.past.length ? (
@@ -192,21 +168,7 @@ export default class GoalsPage extends Page {
 
         {goal.description && <p className="GoalPanel-description">{goal.description}</p>}
 
-        <div className="GoalPanel-numbers">
-          <span className="GoalPanel-progress">{number(goal.progress)}</span>
-          <span className="GoalPanel-target">
-            {t('goal.of', { target: number(goal.target) })} {unit(goal, goal.target)}
-          </span>
-          <span className="GoalPanel-percent">{t('goal.percent', { percent: percent(goal) })}</span>
-        </div>
-        <GoalBar goal={goal} />
-        <div className="GoalPanel-steps" aria-hidden="true">
-          {[25, 50, 75, 100].map((step) => (
-            <span className={classList(goal.milestone >= step && 'is-passed')} style={{ left: `${step}%` }}>
-              {step}%
-            </span>
-          ))}
-        </div>
+        {this.numbers(goal)}
 
         {goal.reward && (
           <div className={classList('GoalPanel-reward', reached && 'is-unlocked')}>
@@ -216,43 +178,98 @@ export default class GoalsPage extends Page {
           </div>
         )}
 
-        <div className="GoalPanel-foot">
-          <div className="GoalPanel-helpers">
-            <div className="GoalPanel-faces">
-              {(goal.top || []).map(([id, count], i) => (
-                <span className="GoalPanel-face" title={`${extractText(username(user(id) || null))}: ${number(count)}`}>
-                  <Avatar user={user(id) || null} />
-                  {i < 3 && <span className="GoalPanel-medal">{MEDALS[i]}</span>}
-                </span>
-              ))}
-            </div>
-            <span className="GoalPanel-helperCount">
-              {t(reached && status === 'done' ? 'goal.helped' : 'goal.helpers', { count: goal.contributors })}
-            </span>
-            {(goal.top || []).length > 0 && (
-              <Button className="Button Button--link GoalPanel-all" onclick={() => app.modal.show(TopModal, { goal })}>
-                {t('goal.see_all')}
-              </Button>
-            )}
-          </div>
-          {app.session.user && goal.metric !== 'custom' && status !== 'upcoming' && (
-            <div className={classList('GoalPanel-mine', goal.mine && 'is-helping')}>
-              {goal.mine ? (
-                <>
-                  <Icon name="fas fa-hand-holding-heart" /> {t('goal.mine', { count: goal.mine })} {unit(goal, goal.mine!)}
-                </>
-              ) : (
-                t('goal.mine_none')
-              )}
-            </div>
-          )}
-        </div>
+        {this.foot(goal, status, reached)}
 
         <p className="GoalPanel-counts">
           <Icon name="fas fa-circle-info" /> {t(`goal.counts.${goal.metric}`, { tag: goal.tag?.name || '' })}{' '}
           {goal.metric !== 'custom' && goal.metric !== 'members' && t('goal.hidden_note')}
         </p>
       </article>
+    );
+  }
+
+  header(): Mithril.Children {
+    return (
+      <header className="CommunityGoalsPage-header">
+        <div className="CommunityGoalsPage-heading">
+          <h2 className="CommunityGoalsPage-title">
+            <Icon name="fas fa-flag-checkered" /> {t('page.title')}
+          </h2>
+          <p className="CommunityGoalsPage-intro">{t('page.intro')}</p>
+        </div>
+        {this.data?.canManage && (
+          <Button className="Button Button--primary" icon="fas fa-plus" onclick={() => openGoalForm({ onsave: () => this.load() })}>
+            {t('page.new')}
+          </Button>
+        )}
+      </header>
+    );
+  }
+
+  panels(title: Mithril.Children, goals: Goal[]): Mithril.Children {
+    return (
+      <section className="CommunityGoalsPage-section">
+        <h3 className="CommunityGoalsPage-sectionTitle">{title}</h3>
+        {goals.map((goal) => this.panel(goal))}
+      </section>
+    );
+  }
+
+  /** The count against the target, the bar and its milestone marks. */
+  numbers(goal: Goal): Mithril.Children {
+    return [
+      <div className="GoalPanel-numbers">
+        <span className="GoalPanel-progress">{number(goal.progress)}</span>
+        <span className="GoalPanel-target">
+          {t('goal.of', { target: number(goal.target) })} {unit(goal, goal.target)}
+        </span>
+        <span className="GoalPanel-percent">{t('goal.percent', { percent: percent(goal) })}</span>
+      </div>,
+      <GoalBar goal={goal} />,
+      <div className="GoalPanel-steps" aria-hidden="true">
+        {[25, 50, 75, 100].map((step) => (
+          <span className={classList(goal.milestone >= step && 'is-passed')} style={{ left: `${step}%` }}>
+            {step}%
+          </span>
+        ))}
+      </div>,
+    ];
+  }
+
+  /** Who helped (top faces, the count, see all) and how much the viewer added. */
+  foot(goal: Goal, status: string, reached: boolean): Mithril.Children {
+    return (
+      <div className="GoalPanel-foot">
+        <div className="GoalPanel-helpers">
+          <div className="GoalPanel-faces">
+            {(goal.top || []).map(([id, count], i) => (
+              <span className="GoalPanel-face" title={`${extractText(username(user(id) || null))}: ${number(count)}`}>
+                <Avatar user={user(id) || null} />
+                {i < 3 && <span className="GoalPanel-medal">{MEDALS[i]}</span>}
+              </span>
+            ))}
+          </div>
+          <span className="GoalPanel-helperCount">
+            {t(reached && status === 'done' ? 'goal.helped' : 'goal.helpers', { count: goal.contributors })}
+          </span>
+          {(goal.top || []).length > 0 && (
+            <Button className="Button Button--link GoalPanel-all" onclick={() => app.modal.show(TopModal, { goal })}>
+              {t('goal.see_all')}
+            </Button>
+          )}
+        </div>
+        {app.session.user && goal.metric !== 'custom' && status !== 'upcoming' && (
+          <div className={classList('GoalPanel-mine', goal.mine && 'is-helping')}>
+            {goal.mine ? (
+              <>
+                <Icon name="fas fa-hand-holding-heart" /> {t('goal.mine', { count: goal.mine })} {unit(goal, goal.mine!)}
+              </>
+            ) : (
+              t('goal.mine_none')
+            )}
+          </div>
+        )}
+      </div>
     );
   }
 

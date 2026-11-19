@@ -5,7 +5,6 @@ import Link from 'flarum/common/components/Link';
 import classList from 'flarum/common/utils/classList';
 import type Mithril from 'mithril';
 
-declare const m: Mithril.Static;
 import GoalBar from './GoalBar';
 import { celebrate } from '../celebrate';
 import { type Goal, METRIC_ICONS, call, number, percent, setSkew, statusOf, t, timing, unit } from '../common';
@@ -39,7 +38,9 @@ export default class GoalBanner extends Component<Attrs> {
           m.redraw.sync();
           celebrate(data.goals, this.element);
         })
-        .catch(() => {});
+        .catch(() => {
+          /* a quiet background refresh: on failure the banner keeps what it shows */
+        });
     }
   }
 

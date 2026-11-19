@@ -16,7 +16,7 @@ export { default as extend } from './extend';
  */
 
 app.initializers.add('ernestdefoe/community-goals', () => {
-  const placement = () => app.forum.attribute<string>('communityGoalsPlacement') || 'hero';
+  const placement = () => app.forum.attribute<string>('communityGoalsPlacement');
 
   // String form: these components live in lazy chunks, and extending an imported copy patches one core never renders.
   extend('flarum/forum/components/IndexSidebar', 'navItems', function (items: ItemList<Mithril.Children>) {

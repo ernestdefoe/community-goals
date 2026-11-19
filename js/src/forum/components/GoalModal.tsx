@@ -10,8 +10,6 @@ import type Mithril from 'mithril';
 import { type Goal, type Metric, call, t } from '../common';
 import { saveGoal } from '../api';
 
-declare const m: Mithril.Static;
-
 interface Choice {
   id: number | string;
   title: string;
@@ -126,93 +124,14 @@ export default class GoalModal extends FormModal<Attrs> {
   content() {
     if (!this.options) return <div className="Modal-body">{<LoadingIndicator />}</div>;
     const frozen = this.frozen;
-    const metrics = METRICS.filter((metric) => (metric !== 'likes' || this.options!.likes) && (metric !== 'tag_posts' || this.options!.tags));
 
     return (
       <div className="Modal-body">
         <div className="Form">
           {frozen && <p className="GoalModal-frozen">{t('form.frozen')}</p>}
-          <div className="Form-group">
-            <label for="cg-name">{t('form.name')}</label>
-            <input
-              id="cg-name"
-              className="FormControl"
-              maxlength={100}
-              bidi={this.name}
-              required
-              placeholder={extractText(t('form.name_placeholder'))}
-            />
-          </div>
-          <div className="Form-group">
-            <label for="cg-description">{t('form.description')}</label>
-            <textarea
-              id="cg-description"
-              className="FormControl"
-              rows={2}
-              maxlength={1000}
-              bidi={this.description}
-              placeholder={extractText(t('form.description_placeholder'))}
-            />
-          </div>
-
-          <div className="GoalModal-row">
-            <div className="Form-group">
-              <label>{t('form.metric')}</label>
-              <Select
-                value={this.metric()}
-                disabled={frozen}
-                options={Object.fromEntries(metrics.map((metric) => [metric, extractText(t(`form.metric_${metric}`))]))}
-                onchange={(value: Metric) => this.metric(value)}
-              />
-            </div>
-            <div className="Form-group">
-              <label for="cg-target">{t('form.target')}</label>
-              <input id="cg-target" className="FormControl" type="number" min={1} max={10000000} bidi={this.target} disabled={frozen} required />
-            </div>
-          </div>
-
-          {this.metric() === 'tag_posts' && (
-            <div className="Form-group">
-              <label>{t('form.tag')}</label>
-              {this.choose(this.tagId, this.options.tags || [], extractText(t('form.tag_choose')), frozen)}
-            </div>
-          )}
-          {this.metric() === 'custom' && (
-            <div className="GoalModal-row">
-              <div className="Form-group">
-                <label for="cg-unit">{t('form.unit')}</label>
-                <input id="cg-unit" className="FormControl" maxlength={40} bidi={this.unit} placeholder={extractText(t('form.unit_placeholder'))} />
-              </div>
-              {!this.attrs.goal && (
-                <div className="Form-group">
-                  <label for="cg-progress">{t('form.start_progress')}</label>
-                  <input id="cg-progress" className="FormControl" type="number" min={0} bidi={this.progress} />
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="GoalModal-row">
-            <div className="Form-group">
-              <label for="cg-starts">{t('form.starts')}</label>
-              <input id="cg-starts" className="FormControl" type="datetime-local" bidi={this.startsAt} disabled={frozen} required />
-            </div>
-            <div className="Form-group">
-              <label for="cg-ends">{t('form.ends')}</label>
-              <input id="cg-ends" className="FormControl" type="datetime-local" bidi={this.endsAt} min={this.startsAt()} disabled={frozen} required />
-            </div>
-          </div>
-          {!frozen && (
-            <div className="GoalModal-presets">
-              <span className="helpText">{t('form.presets')}</span>
-              {['week', '7', 'month'].map((key) => (
-                <Button className="Button Button--text GoalModal-preset" type="button" onclick={() => this.preset(key)}>
-                  {t(`form.preset_${key}`)}
-                </Button>
-              ))}
-            </div>
-          )}
-
+          {this.wordingFields()}
+          {this.countingFields(frozen)}
+          {this.windowFields(frozen)}
           <div className="Form-group">
             <label for="cg-reward">{t('form.reward')}</label>
             <input
@@ -236,6 +155,93 @@ export default class GoalModal extends FormModal<Attrs> {
     );
   }
 
+  wordingFields(): Mithril.Children {
+    return [
+      <div className="Form-group">
+        <label for="cg-name">{t('form.name')}</label>
+        <input id="cg-name" className="FormControl" maxlength={100} bidi={this.name} required placeholder={extractText(t('form.name_placeholder'))} />
+      </div>,
+      <div className="Form-group">
+        <label for="cg-description">{t('form.description')}</label>
+        <textarea
+          id="cg-description"
+          className="FormControl"
+          rows={2}
+          maxlength={1000}
+          bidi={this.description}
+          placeholder={extractText(t('form.description_placeholder'))}
+        />
+      </div>,
+    ];
+  }
+
+  countingFields(frozen: boolean): Mithril.Children {
+    const metrics = METRICS.filter((metric) => (metric !== 'likes' || this.options!.likes) && (metric !== 'tag_posts' || this.options!.tags));
+
+    return [
+      <div className="GoalModal-row">
+        <div className="Form-group">
+          <label>{t('form.metric')}</label>
+          <Select
+            value={this.metric()}
+            disabled={frozen}
+            options={Object.fromEntries(metrics.map((metric) => [metric, extractText(t(`form.metric_${metric}`))]))}
+            onchange={(value: Metric) => this.metric(value)}
+          />
+        </div>
+        <div className="Form-group">
+          <label for="cg-target">{t('form.target')}</label>
+          <input id="cg-target" className="FormControl" type="number" min={1} max={10000000} bidi={this.target} disabled={frozen} required />
+        </div>
+      </div>,
+      this.metric() === 'tag_posts' && (
+        <div className="Form-group">
+          <label>{t('form.tag')}</label>
+          {this.choose(this.tagId, this.options!.tags || [], extractText(t('form.tag_choose')), frozen)}
+        </div>
+      ),
+      this.metric() === 'custom' && (
+        <div className="GoalModal-row">
+          <div className="Form-group">
+            <label for="cg-unit">{t('form.unit')}</label>
+            <input id="cg-unit" className="FormControl" maxlength={40} bidi={this.unit} placeholder={extractText(t('form.unit_placeholder'))} />
+          </div>
+          {!this.attrs.goal && (
+            <div className="Form-group">
+              <label for="cg-progress">{t('form.start_progress')}</label>
+              <input id="cg-progress" className="FormControl" type="number" min={0} bidi={this.progress} />
+            </div>
+          )}
+        </div>
+      ),
+    ];
+  }
+
+  windowFields(frozen: boolean): Mithril.Children {
+    return [
+      <div className="GoalModal-row">
+        <div className="Form-group">
+          <label for="cg-starts">{t('form.starts')}</label>
+          <input id="cg-starts" className="FormControl" type="datetime-local" bidi={this.startsAt} disabled={frozen} required />
+        </div>
+        <div className="Form-group">
+          <label for="cg-ends">{t('form.ends')}</label>
+          <input id="cg-ends" className="FormControl" type="datetime-local" bidi={this.endsAt} min={this.startsAt()} disabled={frozen} required />
+        </div>
+      </div>,
+      !frozen && (
+        <div className="GoalModal-presets">
+          <span className="helpText">{t('form.presets')}</span>
+          {['week', '7', 'month'].map((key) => (
+            <Button className="Button Button--text GoalModal-preset" type="button" onclick={() => this.preset(key)}>
+              {t(`form.preset_${key}`)}
+            </Button>
+          ))}
+        </div>
+      ),
+    ];
+  }
+
   rewards(): Mithril.Children {
     const offer = this.options!.rewards!;
     const days = (max: number, forever: boolean) => ({
@@ -248,85 +254,93 @@ export default class GoalModal extends FormModal<Attrs> {
         <legend>{t('form.rewards')}</legend>
         <p className="helpText">{t('form.rewards_help')}</p>
 
-        {offer.theme && (
-          <div className="GoalModal-reward">
-            <label>{t('form.theme')}</label>
-            <div className="GoalModal-pair">
-              {this.choose(this.theme, offer.theme, extractText(t('form.theme_none')))}
-              {this.theme() && <Select value={this.themeDays()} options={days(60, true)} onchange={this.themeDays} />}
-            </div>
-          </div>
-        )}
+        {offer.theme &&
+          this.rewardRow(
+            t('form.theme'),
+            this.choose(this.theme, offer.theme, extractText(t('form.theme_none'))),
+            this.theme() && <Select value={this.themeDays()} options={days(60, true)} onchange={this.themeDays} />
+          )}
 
-        {offer.festoon && (
-          <div className="GoalModal-reward">
-            <label>{t('form.festoon')}</label>
-            <div className="GoalModal-pair">
-              {this.choose(this.festoon, offer.festoon, extractText(t('form.festoon_none')))}
-              {this.festoon() && <Select value={this.festoonDays()} options={days(14, false)} onchange={this.festoonDays} />}
-            </div>
-          </div>
-        )}
+        {offer.festoon &&
+          this.rewardRow(
+            t('form.festoon'),
+            this.choose(this.festoon, offer.festoon, extractText(t('form.festoon_none'))),
+            this.festoon() && <Select value={this.festoonDays()} options={days(14, false)} onchange={this.festoonDays} />
+          )}
 
-        {offer.badge && (
-          <div className="GoalModal-reward">
-            <label>{t('form.badge')}</label>
-            <div className="GoalModal-pair">
-              {this.choose(this.badge, offer.badge, extractText(t('form.badge_none')))}
-              {this.badge() && (
-                <label className="GoalModal-min">
-                  {t('form.badge_min')}
-                  <input className="FormControl" type="number" min={1} bidi={this.badgeMin} />
-                </label>
-              )}
-            </div>
-          </div>
-        )}
+        {offer.badge &&
+          this.rewardRow(
+            t('form.badge'),
+            this.choose(this.badge, offer.badge, extractText(t('form.badge_none'))),
+            this.badge() && (
+              <label className="GoalModal-min">
+                {t('form.badge_min')}
+                <input className="FormControl" type="number" min={1} bidi={this.badgeMin} />
+              </label>
+            )
+          )}
 
-        {offer.announce && (
-          <div className="GoalModal-reward">
-            <Switch state={this.announce()} onchange={(value: boolean) => this.announce(value)}>
-              {t('form.announce')}
-            </Switch>
-            {this.announce() && (
-              <div className="GoalModal-announce">
-                {offer.announce.tags && (
-                  <label>
-                    {t('form.announce_tag')}
-                    {this.choose(this.announceTag, offer.announce.tags, extractText(t('form.tag_choose')))}
-                  </label>
-                )}
-                <label>
-                  {t('form.announce_title')}
-                  <input
-                    className="FormControl"
-                    maxlength={80}
-                    bidi={this.announceTitle}
-                    placeholder={extractText(t('form.announce_title_placeholder', { title: this.name() || '…' }))}
-                  />
-                </label>
-                <label>
-                  {t('form.announce_body')}
-                  <textarea className="FormControl" rows={3} maxlength={2000} bidi={this.announceBody} />
-                </label>
-                <div className="helpText GoalModal-fields">
-                  <p>{t('form.announce_body_help')}</p>
-                  <dl>
-                    {FIELDS.map((field) => [
-                      <dt>
-                        <code>{`{${field}}`}</code>
-                      </dt>,
-                      <dd>{t(`form.fields.${field}`)}</dd>,
-                    ])}
-                  </dl>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        {offer.announce && this.announceFields(offer.announce)}
 
         {!offer.theme && !offer.festoon && !offer.badge && <p className="helpText">{t('form.rewards_none')}</p>}
       </fieldset>
+    );
+  }
+
+  /** One reward row: what is handed out, and for how long or to whom. */
+  rewardRow(label: Mithril.Children, choice: Mithril.Children, detail: Mithril.Children): Mithril.Children {
+    return (
+      <div className="GoalModal-reward">
+        <label>{label}</label>
+        <div className="GoalModal-pair">
+          {choice}
+          {detail}
+        </div>
+      </div>
+    );
+  }
+
+  announceFields(announce: NonNullable<NonNullable<Options['rewards']>['announce']>): Mithril.Children {
+    return (
+      <div className="GoalModal-reward">
+        <Switch state={this.announce()} onchange={(value: boolean) => this.announce(value)}>
+          {t('form.announce')}
+        </Switch>
+        {this.announce() && (
+          <div className="GoalModal-announce">
+            {announce.tags && (
+              <label>
+                {t('form.announce_tag')}
+                {this.choose(this.announceTag, announce.tags, extractText(t('form.tag_choose')))}
+              </label>
+            )}
+            <label>
+              {t('form.announce_title')}
+              <input
+                className="FormControl"
+                maxlength={80}
+                bidi={this.announceTitle}
+                placeholder={extractText(t('form.announce_title_placeholder', { title: this.name() || '…' }))}
+              />
+            </label>
+            <label>
+              {t('form.announce_body')}
+              <textarea className="FormControl" rows={3} maxlength={2000} bidi={this.announceBody} />
+            </label>
+            <div className="helpText GoalModal-fields">
+              <p>{t('form.announce_body_help')}</p>
+              <dl>
+                {FIELDS.map((field) => [
+                  <dt>
+                    <code>{`{${field}}`}</code>
+                  </dt>,
+                  <dd>{t(`form.fields.${field}`)}</dd>,
+                ])}
+              </dl>
+            </div>
+          </div>
+        )}
+      </div>
     );
   }
 

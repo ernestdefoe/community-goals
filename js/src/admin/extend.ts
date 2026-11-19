@@ -1,8 +1,6 @@
 import app from 'flarum/admin/app';
 import Extend from 'flarum/common/extenders';
 
-declare const m: any;
-
 const t = (key: string) => app.translator.trans(`ernestdefoe-community-goals.admin.${key}`, {}, true);
 const setting = (key: string) => `ernestdefoe-community-goals.${key}`;
 
@@ -18,7 +16,6 @@ export default [
         type: 'select',
         label: t('settings.placement'),
         options: { hero: t('settings.placement_hero'), sidebar: t('settings.placement_sidebar'), off: t('settings.placement_off') },
-        default: 'hero',
       }),
       100
     )

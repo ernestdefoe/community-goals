@@ -9,8 +9,6 @@ import type Mithril from 'mithril';
 import { type Goal, number, t, unit } from '../common';
 import { oneGoal } from '../api';
 
-declare const m: Mithril.Static;
-
 interface Attrs extends IInternalModalAttrs {
   goal: Goal;
 }
