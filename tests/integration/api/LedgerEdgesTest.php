@@ -7,6 +7,8 @@ use ErnestDefoe\CommunityGoals\Gdpr\GoalsData;
 use ErnestDefoe\CommunityGoals\Goal;
 use ErnestDefoe\CommunityGoals\Tally;
 use Flarum\Discussion\Discussion;
+use Flarum\Gdpr\Events\Erasing;
+use Flarum\Gdpr\Models\ErasureRequest;
 use Flarum\Group\Group;
 use Flarum\Http\UrlGenerator;
 use Flarum\Post\Post;
@@ -14,6 +16,7 @@ use Flarum\Settings\SettingsRepositoryInterface;
 use Flarum\Testing\integration\RetrievesAuthorizedUsers;
 use Flarum\Testing\integration\TestCase;
 use Flarum\User\User;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Filesystem\Factory;
 use Illuminate\Database\Events\QueryExecuted;
 use PHPUnit\Framework\Attributes\Test;
@@ -32,7 +35,7 @@ class LedgerEdgesTest extends TestCase
     {
         parent::setUp();
 
-        $this->extension('ernestdefoe-community-goals');
+        $this->extension('flarum-gdpr', 'ernestdefoe-community-goals');
 
         $this->prepareDatabase([
             User::class => [
@@ -92,6 +95,15 @@ class LedgerEdgesTest extends TestCase
         );
     }
 
+    /** What flarum/gdpr's ErasureJob does for one member: Erasing, then every data type's delete(). */
+    private function erase(int $userId): void
+    {
+        $request = new ErasureRequest();
+        $request->user_id = $userId;
+        $this->app()->getContainer()->make(Dispatcher::class)->dispatch(new Erasing($request));
+        $this->gdpr($userId)->delete();
+    }
+
     #[Test]
     public function a_members_export_lists_their_part_and_erasure_takes_it_out(): void
     {
@@ -107,7 +119,7 @@ class LedgerEdgesTest extends TestCase
         $this->assertSame($id, (int) $rows[0]['goal']);
         $this->assertSame(2, (int) $rows[0]['count']);
 
-        $this->gdpr(3)->delete();
+        $this->erase(3);
         $goal = Goal::query()->findOrFail($id);
         $this->assertSame(1, $goal->progress);
         $this->assertSame(1, $goal->contributors_count);
@@ -115,7 +127,7 @@ class LedgerEdgesTest extends TestCase
         $this->assertSame(1, $goal->user_id, 'erasing a helper leaves the goal\'s creator alone');
 
         // Erasing the creator keeps the goal, without their name.
-        $this->gdpr(1)->delete();
+        $this->erase(1);
         $this->assertNull(Goal::query()->findOrFail($id)->user_id);
     }
 

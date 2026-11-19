@@ -79,7 +79,7 @@ class FestoonDay implements Reward
     /** @return list<mixed> Festoon's custom looks minus ours. */
     private function without(string $id): array
     {
-        $custom = json_decode((string) $this->settings->get(Config::CUSTOM, '[]'), true);
+        $custom = json_decode((string) $this->settings->get(Config::CUSTOM), true);
 
         return array_values(array_filter(is_array($custom) ? $custom : [], fn ($def) => ! is_array($def) || ($def['id'] ?? null) !== $id));
     }

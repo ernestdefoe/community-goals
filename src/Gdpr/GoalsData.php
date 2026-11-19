@@ -2,13 +2,13 @@
 
 namespace ErnestDefoe\CommunityGoals\Gdpr;
 
-use ErnestDefoe\CommunityGoals\Tally;
 use Flarum\Gdpr\Data\Type;
 
 /**
- * A member's export: how much they added to each goal. Erasing takes their
- * part out of running goals (finished goals keep their final number) and
- * forgets their name on every goal; goals they created stay, without them.
+ * A member's export: how much they added to each goal. Erasing forgets
+ * their name on every goal they created (the goals stay, without them);
+ * their part of running goals is taken out just before, by
+ * Listener\ForgetErasedMember (finished goals keep their final number).
  */
 class GoalsData extends Type
 {
@@ -45,11 +45,7 @@ class GoalsData extends Type
 
     public function delete(): void
     {
-        // flarum/gdpr builds every data type itself with a fixed argument list
-        // (`new $type($user, $request, $factory, $settings, $url, $translator)` in
-        // Exporter and ErasureJob), never through the container, so a constructor
-        // can't take Tally: this is the one place the container is asked directly.
-        resolve(Tally::class)->forgetUser($this->user->id);
+        // Their counts already came out of running goals: ForgetErasedMember, on flarum/gdpr's Erasing.
         $this->user->getConnection()->table('community_goals')->where('user_id', $this->user->id)->update(['user_id' => null]);
     }
 }
