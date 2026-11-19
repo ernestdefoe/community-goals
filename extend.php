@@ -15,19 +15,14 @@
  */
 
 use ErnestDefoe\CommunityGoals\Api;
-use ErnestDefoe\CommunityGoals\Board;
 use ErnestDefoe\CommunityGoals\Console\RecountCommand;
 use ErnestDefoe\CommunityGoals\Console\TickCommand;
 use ErnestDefoe\CommunityGoals\Gdpr\GoalsData;
 use ErnestDefoe\CommunityGoals\Http\PageContent;
 use ErnestDefoe\CommunityGoals\Listener\CountActivity;
 use ErnestDefoe\CommunityGoals\Notification\GoalReachedBlueprint;
-use ErnestDefoe\CommunityGoals\Present;
-use ErnestDefoe\CommunityGoals\Settings;
-use Flarum\Api\Context;
 use Flarum\Approval\Event\PostWasApproved;
 use Flarum\Api\Resource\ForumResource;
-use Flarum\Api\Schema;
 use Flarum\Extend;
 use Flarum\Gdpr\Extend\UserData;
 use Flarum\Likes\Event\PostWasLiked;
@@ -89,17 +84,8 @@ return [
             $event->everyFiveMinutes()->withoutOverlapping();
         }),
 
-    // The banner's goals come from the cache: no query on a hit, one or two on a miss.
     (new Extend\ApiResource(ForumResource::class))
-        ->fields(fn () => [
-            Schema\Arr::make('communityGoals')
-                ->visible(fn ($forum, Context $context) => Settings::canView($context->getActor()) && resolve('flarum.settings')->get(Settings::PLACEMENT, 'hero') !== 'off')
-                ->get(fn ($forum, Context $context) => array_slice(resolve(Present::class)->visible($context->getActor(), resolve(Board::class)->get()), 0, Board::LIMIT)),
-            Schema\Boolean::make('communityGoalsCanView')
-                ->get(fn ($forum, Context $context) => Settings::canView($context->getActor())),
-            Schema\Boolean::make('communityGoalsCanManage')
-                ->get(fn ($forum, Context $context) => $context->getActor()->can(Settings::MANAGE)),
-        ]),
+        ->fields(Api\ForumResourceFields::class),
 
     // 🚨 Literal keys (= Settings::PLACEMENT, Settings::NAV), never the constants: reading a
     // constant here autoloads the class during boot, and a worker with a stale autoload map

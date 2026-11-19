@@ -29,7 +29,7 @@ class GoalsData extends Type
 
     public function export(): ?array
     {
-        $rows = resolve('db')->table('community_goal_contributors')
+        $rows = $this->user->getConnection()->table('community_goal_contributors')
             ->join('community_goals', 'community_goals.id', '=', 'community_goal_contributors.goal_id')
             ->where('community_goal_contributors.user_id', $this->user->id)
             ->get(['community_goals.id as goal', 'community_goals.title', 'community_goals.metric', 'community_goal_contributors.count'])
@@ -45,7 +45,11 @@ class GoalsData extends Type
 
     public function delete(): void
     {
+        // flarum/gdpr builds every data type itself with a fixed argument list
+        // (`new $type($user, $request, $factory, $settings, $url, $translator)` in
+        // Exporter and ErasureJob), never through the container, so a constructor
+        // can't take Tally: this is the one place the container is asked directly.
         resolve(Tally::class)->forgetUser($this->user->id);
-        resolve('db')->table('community_goals')->where('user_id', $this->user->id)->update(['user_id' => null]);
+        $this->user->getConnection()->table('community_goals')->where('user_id', $this->user->id)->update(['user_id' => null]);
     }
 }
