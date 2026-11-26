@@ -3,7 +3,9 @@
 namespace ErnestDefoe\CommunityGoals\Tests\integration\api;
 
 use Carbon\Carbon;
+use ErnestDefoe\CommunityGoals\Event\GoalReached;
 use ErnestDefoe\CommunityGoals\Goal;
+use ErnestDefoe\CommunityGoals\Job\CompleteGoal;
 use ErnestDefoe\CommunityGoals\Tally;
 use Flarum\Discussion\Discussion;
 use Flarum\Group\Group;
@@ -11,6 +13,7 @@ use Flarum\Post\Post;
 use Flarum\Testing\integration\RetrievesAuthorizedUsers;
 use Flarum\Testing\integration\TestCase;
 use Flarum\User\User;
+use Illuminate\Contracts\Events\Dispatcher;
 use PHPUnit\Framework\Attributes\Test;
 
 class GoalsTest extends TestCase
@@ -201,6 +204,40 @@ class GoalsTest extends TestCase
 
         // Removing a post afterwards doesn't take the goal back.
         $this->assertNotNull($this->fresh($id)->hit_at);
+    }
+
+    #[Test]
+    public function goal_reached_is_dispatched_exactly_once(): void
+    {
+        $reached = [];
+        $this->app()->getContainer()->make(Dispatcher::class)
+            ->listen(GoalReached::class, function (GoalReached $event) use (&$reached) {
+                $reached[] = $event->goal->id;
+            });
+
+        $id = $this->goal(['target' => 2]);
+        $this->reply(3);
+        $this->assertSame([], $reached, 'not before the target');
+        $this->reply(4);
+        $this->assertSame([$id], $reached, 'once, when it completes');
+        $this->assertNotNull($this->fresh($id)->rewarded_at);
+
+        // A reached goal keeps counting, is edited, and its job runs again (a retry or a lease
+        // taken over): none of it dispatches a second event.
+        $this->reply(4);
+        $this->assertSame(200, $this->api('PATCH', "/$id", 1, ['title' => 'Renamed rally'])[0]);
+        $job = new CompleteGoal($id);
+        $this->app()->getContainer()->call([$job, 'handle']);
+        $this->database()->table('community_goals')->where('id', $id)->update(['completing_at' => null]);
+        $this->app()->getContainer()->call([$job, 'handle']);
+        $this->assertSame([$id], $reached);
+
+        // A goal finished before the event existed (rewarded_at already set) never dispatches it.
+        $old = $this->goal(['title' => 'Old rally', 'target' => 50]);
+        $this->database()->table('community_goals')->where('id', $old)
+            ->update(['hit_at' => Carbon::now()->subDay(), 'rewarded_at' => Carbon::now()->subDay()]);
+        $this->app()->getContainer()->call([new CompleteGoal($old), 'handle']);
+        $this->assertSame([$id], $reached);
     }
 
     #[Test]

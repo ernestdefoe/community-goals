@@ -4,12 +4,14 @@ namespace ErnestDefoe\CommunityGoals\Job;
 
 use Carbon\Carbon;
 use ErnestDefoe\CommunityGoals\Board;
+use ErnestDefoe\CommunityGoals\Event\GoalReached;
 use ErnestDefoe\CommunityGoals\Goal;
 use ErnestDefoe\CommunityGoals\Notification\GoalReachedBlueprint;
 use ErnestDefoe\CommunityGoals\Rewards;
 use Flarum\Notification\NotificationSyncer;
 use Flarum\Queue\AbstractJob;
 use Flarum\User\User;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\ConnectionInterface;
 
 /**
@@ -22,7 +24,8 @@ use Illuminate\Database\ConnectionInterface;
  * `rewarded_at` is set LAST. One run at a time holds a lease
  * (`completing_at`); a lease older than LEASE_MINUTES is a run that died,
  * and the tick takes it over. So a throw or a killed worker delays the
- * rewards, never loses them.
+ * rewards, never loses them. The run that claims `rewarded_at` (only one can:
+ * the update requires it to be empty) dispatches Event\GoalReached, once.
  */
 class CompleteGoal extends AbstractJob
 {
@@ -35,7 +38,7 @@ class CompleteGoal extends AbstractJob
     {
     }
 
-    public function handle(ConnectionInterface $db, NotificationSyncer $notifications, Rewards $rewards, Board $board): void
+    public function handle(ConnectionInterface $db, NotificationSyncer $notifications, Rewards $rewards, Board $board, Dispatcher $events): void
     {
         $now = Carbon::now();
         $claimed = $db->table('community_goals')
@@ -72,7 +75,12 @@ class CompleteGoal extends AbstractJob
             $goal->save();
         });
 
-        $db->table('community_goals')->where('id', $goal->id)->update(['rewarded_at' => Carbon::now(), 'completing_at' => null]);
+        $finished = $db->table('community_goals')->where('id', $goal->id)->whereNull('rewarded_at')
+            ->update(['rewarded_at' => Carbon::now(), 'completing_at' => null]);
         $board->forget();
+
+        if ($finished) {
+            $events->dispatch(new GoalReached($goal->refresh()));
+        }
     }
 }

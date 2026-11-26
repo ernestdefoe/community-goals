@@ -52,6 +52,26 @@ php flarum cache:clear
 - Automatic rewards can only be set by admins, even if moderators may set goals.
 - Changed which groups can see a tag? Use **Recount** on goals that count it: the count follows posts as they change, not permission edits.
 
+## For extension developers
+
+When a goal is reached and finished (its helpers have been notified and its rewards handed out), Community Goals dispatches `ErnestDefoe\CommunityGoals\Event\GoalReached`. It fires exactly once per goal: never again when the goal is edited later, and never for goals that were finished before the event existed (1.1.0).
+
+```php
+use ErnestDefoe\CommunityGoals\Event\GoalReached;
+use Flarum\Extend;
+
+return [
+    (new Extend\Conditional())
+        ->whenExtensionEnabled('ernestdefoe-community-goals', fn () => [
+            (new Extend\Event())->listen(GoalReached::class, function (GoalReached $event) {
+                $goal = $event->goal; // ErnestDefoe\CommunityGoals\Goal: title, target, progress, hit_at, ...
+            }),
+        ]),
+];
+```
+
+It is dispatched from a queued job, so listen for it in code that is fine to run there. If you rely on it, add `"ernestdefoe/community-goals": "<1.1"` to your extension's `conflict`.
+
 ## Links
 
 - [Packagist](https://packagist.org/packages/ernestdefoe/community-goals)
